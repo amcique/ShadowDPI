@@ -1,0 +1,66 @@
+name: Feature request
+description: Suggest a new option, preset, or workflow.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first, then the change you have in mind. Concrete
+        examples are more useful than broad requests.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched existing issues and did not find the same request.
+          required: true
+        - label: I checked the command-line reference and the request is not already an option.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI or presets
+        - HTTP handling
+        - HTTPS and TLS handling
+        - DNS redirection
+        - QUIC handling
+        - Performance
+        - Windows service
+        - Documentation
+        - Packaging or CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is difficult, missing, or unreliable today?
+      placeholder: When I use preset -5 with ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should ShadowDPI do differently?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other presets, options, or tools you tried.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Provider behavior, applications, packet captures, or references.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Command-line reference
+    url: https://github.com/amcique/ShadowDPI/blob/main/docs/cli.md
+    about: Presets, options, aliases, blacklist format, and examples.
+  - name: Performance notes
+    url: https://github.com/amcique/ShadowDPI/blob/main/docs/performance.md
+    about: Benchmark method, results, and known caveats.

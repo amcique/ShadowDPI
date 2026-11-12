@@ -1,0 +1,15 @@
+ShadowDPI
+=========
+
+This product uses WinDivert 2.2.0-D (https://github.com/basil00/Divert),
+Copyright (c) basil00 and contributors.
+
+WinDivert is dual-licensed under the GNU Lesser General Public License,
+version 3, or the GNU General Public License, version 2. ShadowDPI
+redistributes the unmodified WinDivert binaries under the LGPLv3 option. The
+full license text is in third_party/WinDivert/LICENSE.
+
+The corresponding source code is available at
+https://github.com/basil00/Divert. For a period of three years from the date
+of distribution, the ShadowDPI maintainers will also provide the corresponding
+source code for the WinDivert binaries shipped with each release on request.

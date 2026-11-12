@@ -1,0 +1,27 @@
+# CMake build trees and IDE output
+/build/
+/out/
+/.vs/
+CMakeUserPresets.json
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Compiled binaries and intermediate files
+*.o
+*.obj
+*.exe
+*.dll
+*.sys
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.res
+
+# Editor and OS clutter
+.vscode/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,97 @@
+name: Bug report
+description: Report a crash, a hang, or incorrect packet handling.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+
+        Please check that the issue is in ShadowDPI itself. A site that does
+        not open is usually blocked by the provider, not by this program. The
+        limits section of the README explains what the project does not
+        promise. Usage questions belong in the issue tracker as well, but
+        mark them clearly as questions.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I am using the latest release with its matching WinDivert files.
+          required: true
+        - label: I can reproduce the problem from an elevated console.
+          required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      description: Include the edition, version, and build number.
+      placeholder: Windows 11 Pro 24H2, build 26100
+    validations:
+      required: true
+
+  - type: dropdown
+    id: launch-mode
+    attributes:
+      label: Launch mode
+      options:
+        - Console, elevated
+        - Console, through the UAC prompt
+        - Windows service
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command line
+      description: The exact arguments used to start ShadowDPI.
+      placeholder: shadowdpi.exe -9 --verbose
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include error text or a crash address if one was shown.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that triggers the problem.
+      placeholder: |
+        1. Start ShadowDPI with ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Verbose output
+      description: Paste the output of a verbose run. Redact addresses or domains you do not want to publish.
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Network setup, VPN, antivirus, or anything else that may be relevant.

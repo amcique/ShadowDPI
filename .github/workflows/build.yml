@@ -1,0 +1,147 @@
+name: Build ShadowDPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'tests/**'
+      - 'bench/**'
+      - 'resources/**'
+      - 'third_party/**'
+      - 'docs/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'NOTICE'
+      - 'LICENSE'
+      - 'README.md'
+      - '.github/workflows/build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'tests/**'
+      - 'bench/**'
+      - 'resources/**'
+      - 'third_party/**'
+      - 'docs/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+env:
+  WINDIVERT_URL: https://reqrypt.org/download/WinDivert-2.2.0-D.zip
+  WINDIVERT_NAME: WinDivert-2.2.0-D.zip
+  WINDIVERT_BASENAME: WinDivert-2.2.0-D
+  WINDIVERT_SHA256: 1d461cfdfa7ba88ebcfbb3603b71b703e9f72aba8aeff99a75ce293e6f89d2ba
+
+jobs:
+  msvc-x64:
+    name: MSVC x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Declare short commit variable
+        id: vars
+        shell: bash
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore WinDivert archive
+        id: windivert-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WINDIVERT_NAME }}
+          key: ${{ env.WINDIVERT_SHA256 }}
+
+      - name: Download WinDivert
+        if: steps.windivert-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
+          $hash = (Get-FileHash $env:WINDIVERT_NAME -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:WINDIVERT_SHA256) {
+            throw "WinDivert checksum mismatch: $hash"
+          }
+
+      - name: Extract WinDivert
+        shell: pwsh
+        run: Expand-Archive -Path $env:WINDIVERT_NAME -DestinationPath . -Force
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $env:WINDIVERT_ROOT = Join-Path $env:GITHUB_WORKSPACE $env:WINDIVERT_BASENAME
+          cmake --preset msvc-x64
+
+      - name: Build
+        run: cmake --build --preset msvc-x64-release
+
+      - name: Test
+        run: ctest --preset msvc-x64-release
+
+      # CTest hides output of passing tests; run the benchmark once more so the
+      # timings are visible in the build log.
+      - name: Parser benchmark
+        run: .\build\msvc-x64\Release\shadowdpi_parse_bench.exe --check
+
+      - name: Prepare x64 directory
+        shell: pwsh
+        run: |
+          $dir = "shadowdpi_x64_${{ steps.vars.outputs.sha_short }}"
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          Copy-Item build/msvc-x64/Release/shadowdpi.exe $dir
+          Copy-Item build/msvc-x64/Release/WinDivert.dll $dir
+          Copy-Item build/msvc-x64/Release/WinDivert64.sys $dir
+          Copy-Item LICENSE $dir
+          Copy-Item NOTICE $dir
+          Copy-Item README.md $dir
+          Copy-Item docs $dir -Recurse
+          $resourceDir = Join-Path $dir 'resources'
+          New-Item -ItemType Directory -Path $resourceDir | Out-Null
+          Copy-Item resources/logo.png $resourceDir
+          $thirdParty = Join-Path $dir 'third_party/WinDivert'
+          New-Item -ItemType Directory -Path $thirdParty | Out-Null
+          Copy-Item third_party/WinDivert/LICENSE $thirdParty
+          Copy-Item third_party/WinDivert/README.md $thirdParty
+
+      - name: Upload output file x64
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowdpi_x64_${{ steps.vars.outputs.sha_short }}
+          path: shadowdpi_x64_${{ steps.vars.outputs.sha_short }}
+
+  release:
+    name: GitHub Release
+    needs: msvc-x64
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shadowdpi_x64_*
+          path: release
+          merge-multiple: true
+
+      - name: Package archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p "shadowdpi-${version}-x64"
+          cp -R release/. "shadowdpi-${version}-x64/"
+          ( cd "shadowdpi-${version}-x64" && find . -type f -print0 | sort -z | xargs -0 sha256sum ) > "shadowdpi-${version}-x64.sha256"
+          zip -r "shadowdpi-${version}-x64.zip" "shadowdpi-${version}-x64"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ShadowDPI ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            shadowdpi-*.zip
+            shadowdpi-*.sha256
