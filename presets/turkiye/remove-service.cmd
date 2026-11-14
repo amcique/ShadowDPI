@@ -1,16 +1,13 @@
 @echo off
-rem Remove the ShadowDPI service. The WinDivert driver services are shared
-rem with other tools and are intentionally left in place.
+rem Shared service remover. The WinDivert driver services are shared with
+rem other tools and are intentionally left in place.
 setlocal EnableExtensions
-call "%~dp0..\settings.cmd"
-
-set "SDP_SERVICE=ShadowDPI"
 
 net session >nul 2>&1
 if errorlevel 1 goto need_admin
 
-sc stop "%SDP_SERVICE%" >nul 2>&1
-sc delete "%SDP_SERVICE%"
+sc stop "ShadowDPI" >nul 2>&1
+sc delete "ShadowDPI"
 if errorlevel 1 goto not_installed
 
 echo.

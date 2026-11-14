@@ -2,8 +2,9 @@
 rem ===========================================================================
 rem  ShadowDPI Turkey presets - shared settings
 rem
-rem  Edit this file only. Every launcher in console\ and service\ reads it.
-rem  Run the launchers with Administrator rights.
+rem  This file holds the values that every provider group shares: the path to
+rem  shadowdpi.exe and the DNS resolvers. Provider recipes live in the genel\
+rem  and superonline\ folders. Run the launchers with Administrator rights.
 rem ===========================================================================
 
 rem Absolute path to shadowdpi.exe. The default assumes the release layout,
@@ -24,13 +25,3 @@ set "SDP_DNS6_PORT=1253"
 set "SDP_DNS6_ARGS=--dnsv6-addr %SDP_DNS6% --dnsv6-port %SDP_DNS6_PORT%"
 if not defined SDP_DNS6 set "SDP_DNS6_ARGS="
 set "SDP_DNS_ARGS=--dns-addr %SDP_DNS4% --dns-port %SDP_DNS4_PORT% %SDP_DNS6_ARGS%"
-
-rem The six recipes. A preset comes first and overrides follow it, because
-rem later command line arguments win. --fake-ttl turns off the automatic TTL
-rem that -5 would otherwise choose.
-set "SDP_ARGS_1=-5 --fake-ttl 5 %SDP_DNS_ARGS%"
-set "SDP_ARGS_2=-5"
-set "SDP_ARGS_3=--fake-ttl 3 %SDP_DNS_ARGS%"
-set "SDP_ARGS_4=-5 %SDP_DNS_ARGS%"
-set "SDP_ARGS_5=-9 %SDP_DNS_ARGS%"
-set "SDP_ARGS_6=-9"
