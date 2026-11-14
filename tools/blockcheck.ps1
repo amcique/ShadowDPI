@@ -46,12 +46,18 @@ which leaves room for the first WinDivert driver load.
 .PARAMETER Repeats
 Probe attempts per URL. 0 selects 1 for quick and standard and 2 for full.
 
+.PARAMETER DnsResolver
+DNS resolver choice. ask shows a menu in an interactive session, cloudflare
+uses 1.1.1.1, google uses 8.8.8.8, and system uses the Windows resolver.
+Explicit DnsAddr or DnsV6Addr values skip the menu.
+
 .PARAMETER DnsAddr
-IPv4 resolver for --dns-addr. When set, every strategy also redirects DNS and
-an extra "DNS redirect only" strategy is added.
+Skip the menu and use this IPv4 resolver for --dns-addr. When set, every
+strategy also redirects DNS and an extra "DNS redirect only" strategy is added.
 
 .PARAMETER DnsPort
-Port for DnsAddr. Defaults to 53.
+Port for DnsAddr, and for the cloudflare and google resolver choices. Defaults
+to 53.
 
 .PARAMETER DnsV6Addr
 Optional IPv6 resolver for --dnsv6-addr.
@@ -103,6 +109,8 @@ param(
     [int]$StartupTimeoutSec = 10,
     [ValidateRange(0, 10)]
     [int]$Repeats = 0,
+    [ValidateSet('ask', 'cloudflare', 'google', 'system')]
+    [string]$DnsResolver = 'ask',
     [string]$DnsAddr = '',
     [ValidateRange(1, 65535)]
     [int]$DnsPort = 53,
@@ -133,6 +141,120 @@ function Write-Info {
 function Write-Warn {
     param([string]$Message)
     Write-Host ('warning: ' + $Message) -ForegroundColor Yellow
+}
+
+function Test-InteractiveHost {
+    if ($Host.Name -ne 'ConsoleHost') {
+        return $false
+    }
+
+    try {
+        if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
+            return $false
+        }
+    }
+    catch {
+        return $false
+    }
+
+    return $true
+}
+
+function Read-CustomDns {
+    param(
+        [int]$DefaultPort = 53,
+        [int]$DefaultV6Port = 53
+    )
+
+    while ($true) {
+        $address = [string](Read-Host 'DNS address (IPv4 or IPv6)')
+        $address = $address.Trim()
+        if (-not $address) {
+            Write-Warn 'Enter an IPv4 or IPv6 address.'
+            continue
+        }
+
+        $parsed = $null
+        if (-not [System.Net.IPAddress]::TryParse($address, [ref]$parsed)) {
+            Write-Warn "Not a valid IP address: $address"
+            continue
+        }
+
+        $isV6 = $parsed.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6
+        if (-not $isV6 -and $address -notmatch '\.') {
+            Write-Warn "Enter a dotted IPv4 address or an IPv6 address: $address"
+            continue
+        }
+        if ($isV6 -and $address -notmatch ':') {
+            Write-Warn "Enter a dotted IPv4 address or an IPv6 address: $address"
+            continue
+        }
+
+        $portDefault = $DefaultPort
+        if ($isV6) {
+            $portDefault = $DefaultV6Port
+        }
+
+        $port = $portDefault
+        while ($true) {
+            $portText = [string](Read-Host "DNS port [$portDefault]")
+            $portText = $portText.Trim()
+            if (-not $portText) {
+                break
+            }
+
+            $parsedPort = 0
+            if ([int]::TryParse($portText, [ref]$parsedPort) -and $parsedPort -ge 1 -and $parsedPort -le 65535) {
+                $port = $parsedPort
+                break
+            }
+
+            Write-Warn 'Enter a port from 1 to 65535.'
+        }
+
+        return [pscustomobject]@{
+            Address = $address
+            Port    = $port
+            IsV6    = $isV6
+        }
+    }
+}
+
+function Read-DnsChoice {
+    param(
+        [int]$DefaultPort = 53,
+        [int]$DefaultV6Port = 53
+    )
+
+    Write-Info ''
+    Write-Info 'DNS resolver for the scan'
+    Write-Info '  1. Cloudflare 1.1.1.1 (recommended)'
+    Write-Info '  2. Google 8.8.8.8'
+    Write-Info '  3. Other'
+    Write-Info '  4. Do not specify (use the system resolver)'
+
+    while ($true) {
+        $answer = [string](Read-Host 'Choice [1]')
+        $answer = $answer.Trim()
+        if (-not $answer) {
+            $answer = '1'
+        }
+
+        if ($answer -eq '1') {
+            return [pscustomobject]@{ Address = '1.1.1.1'; Port = $DefaultPort; IsV6 = $false }
+        }
+        if ($answer -eq '2') {
+            return [pscustomobject]@{ Address = '8.8.8.8'; Port = $DefaultPort; IsV6 = $false }
+        }
+        if ($answer -eq '3') {
+            return Read-CustomDns -DefaultPort $DefaultPort -DefaultV6Port $DefaultV6Port
+        }
+        if ($answer -eq '4') {
+            return $null
+        }
+
+        Write-Warn 'Enter 1, 2, 3, or 4.'
+    }
 }
 
 function Resolve-ExePath {
@@ -1115,6 +1237,38 @@ try {
     $exePath = Resolve-ExePath -Path $Exe
 
     $dnsArgs = @()
+
+    if (-not $DnsAddr -and -not $DnsV6Addr) {
+        if ($DnsResolver -eq 'ask') {
+            if ($DryRun) {
+                Write-Info 'DNS: system resolver (prompt skipped in dry run)'
+            }
+            elseif (Test-InteractiveHost) {
+                $choice = Read-DnsChoice -DefaultPort $DnsPort -DefaultV6Port $DnsV6Port
+                if ($null -eq $choice) {
+                    Write-Info 'DNS: system resolver'
+                }
+                elseif ($choice.IsV6) {
+                    $DnsV6Addr = $choice.Address
+                    $DnsV6Port = $choice.Port
+                }
+                else {
+                    $DnsAddr = $choice.Address
+                    $DnsPort = $choice.Port
+                }
+            }
+            else {
+                Write-Info 'DNS: system resolver (no prompt in a non-interactive session)'
+            }
+        }
+        elseif ($DnsResolver -eq 'cloudflare') {
+            $DnsAddr = '1.1.1.1'
+        }
+        elseif ($DnsResolver -eq 'google') {
+            $DnsAddr = '8.8.8.8'
+        }
+    }
+
     if ($DnsAddr) {
         $dnsAddress = $null
         if (-not [System.Net.IPAddress]::TryParse($DnsAddr, [ref]$dnsAddress) -or $dnsAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
@@ -1123,7 +1277,7 @@ try {
         $dnsArgs += @('--dns-addr', $DnsAddr, '--dns-port', "$DnsPort")
     }
     elseif ($PSBoundParameters.ContainsKey('DnsPort')) {
-        throw 'DnsPort requires DnsAddr'
+        throw 'DnsPort requires DnsAddr or a DNS resolver choice'
     }
 
     if ($DnsV6Addr) {

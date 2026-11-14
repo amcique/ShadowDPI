@@ -123,7 +123,10 @@ working one.
 .\tools\blockcheck.ps1 -Urls wikipedia.org,x.com -DnsAddr 77.88.8.8 -DnsPort 1253
 ```
 
-Edit `tools\blockcheck-urls.txt` or pass `-Urls`. The scanner needs
+Edit `tools\blockcheck-urls.txt` or pass `-Urls`. In an interactive session the
+scanner asks which DNS resolver to use: Cloudflare, Google, another resolver,
+or the system resolver. Pass `-DnsResolver system` to skip the question, or
+`-DnsAddr` when you need a custom address and port. The scanner needs
 Administrator rights and `curl.exe`, and it checks for a conflicting ShadowDPI
 instance before it starts. Scan levels, result verdicts, JSON fields, and exit
 codes are documented in [docs/blockcheck.md](docs/blockcheck.md).

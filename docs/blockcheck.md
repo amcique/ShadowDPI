@@ -44,14 +44,36 @@ A bare host is treated as `https://host/`:
 .\tools\blockcheck.ps1 -Urls wikipedia.org,x.com -ScanLevel standard
 ```
 
-If the provider poisons DNS answers, add a resolver. When `-DnsAddr` is set,
-every candidate also receives `--dns-addr` and `--dns-port`, and an extra
-`DNS redirect only` candidate is added:
+Unless you pass `-DnsAddr`, `-DnsV6Addr`, or `-DnsResolver`, the script asks
+which DNS resolver to use:
+
+```
+DNS resolver for the scan
+  1. Cloudflare 1.1.1.1 (recommended)
+  2. Google 8.8.8.8
+  3. Other
+  4. Do not specify (use the system resolver)
+```
+
+If the provider poisons DNS answers, choose Cloudflare, Google, or `Other`.
+When a resolver is selected, every candidate also receives `--dns-addr` and
+`--dns-port`, and an extra `DNS redirect only` candidate is added:
 
 ```powershell
 .\tools\blockcheck.ps1 -UrlFile .\blocked.txt `
-    -DnsAddr 77.88.8.8 -DnsPort 1253 -ScanLevel full -Json result.json
+    -DnsResolver cloudflare -ScanLevel full -Json result.json
 ```
+
+Use `-DnsResolver system` to skip the question and keep the Windows resolver,
+or pass an explicit address when you need a custom port:
+
+```powershell
+.\tools\blockcheck.ps1 -UrlFile .\blocked.txt `
+    -DnsAddr 77.88.8.8 -DnsPort 1253 -ScanLevel full
+```
+
+The question is skipped when input or output is redirected, and during
+`-DryRun`, so unattended runs fall back to the system resolver.
 
 ## How a scan works
 
@@ -98,9 +120,10 @@ want a shorter run.
 | `-TimeoutSec <n>` | Maximum time for one curl probe. Defaults to `5`. |
 | `-StartupTimeoutSec <n>` | Maximum wait for the ready file. Defaults to `10`. |
 | `-Repeats <n>` | Probe attempts. `0` means 1 for quick and standard, 2 for full. |
-| `-DnsAddr <ipv4>` | Add `--dns-addr` to every candidate and enable the DNS-only candidate. |
-| `-DnsPort <port>` | Port for `-DnsAddr`. Defaults to `53`. |
-| `-DnsV6Addr <ipv6>` | Add `--dnsv6-addr` to every candidate. |
+| `-DnsResolver ask\|cloudflare\|google\|system` | DNS choice. `ask` shows the menu in an interactive session, `cloudflare` uses 1.1.1.1, `google` uses 8.8.8.8, and `system` keeps the Windows resolver. Defaults to `ask`. |
+| `-DnsAddr <ipv4>` | Skip the menu and add `--dns-addr` to every candidate. |
+| `-DnsPort <port>` | Port for `-DnsAddr`, `-DnsResolver cloudflare`, and `-DnsResolver google`. Defaults to `53`. |
+| `-DnsV6Addr <ipv6>` | Skip the menu and add `--dnsv6-addr` to every candidate. |
 | `-DnsV6Port <port>` | Port for `-DnsV6Addr`. Defaults to `53`. |
 | `-Json <path>` | Write the complete results as UTF-8 JSON without a BOM. |
 | `-MaxStrategies <n>` | Limit the number of candidates. `0` keeps all. |
