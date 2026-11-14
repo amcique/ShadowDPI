@@ -56,15 +56,12 @@ The A/A control runs the original binary in both slots. Its median ratio was
 normal on this host. The A/B medians for HTTP, HTTPS, and keep-alive all fall
 inside the A/A range; the paired CPU ratios (0.0023, 0.0011, 0.0911) do not.
 
-<details>
-<summary><strong>CPU cost for all twelve workloads</strong></summary>
+### CPU cost for all twelve workloads
 
 ![CPU cycles by workload](docs/performance/cpu-cycles.svg)
 
 Bulk HTTPS transfers show 500-810× less CPU. The remaining workloads show
 2-75×; the 67.8× byte-weighted figure above is the conservative aggregate.
-
-</details>
 
 Method, environment, the full matrix, latency distributions, and caveats are
 in [docs/performance.md](docs/performance.md).
