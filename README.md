@@ -22,8 +22,6 @@ on top of WinDivert, needs no proxy configuration, installs no root
 certificate, and never terminates TLS. Applications keep talking to the real
 destination.
 
-It is built for **64-bit Windows with MSVC** and has no 32-bit or MinGW target.
-
 ## What it does
 
 - **Blocks passive DPI.** Injected redirects and TCP resets are dropped before
