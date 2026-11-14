@@ -108,6 +108,13 @@ Useful variations:
 `-9` blocks QUIC deliberately. If an application needs QUIC and cannot fall
 back to TCP, start from `-5` instead.
 
+### Turkish presets
+
+Six ready-made recipes for Turkish providers are in
+[presets/turkiye](presets/turkiye/README.md). They wrap the flags above and keep
+the DNS endpoints in one editable file, with both console launchers and a
+service installer.
+
 The full option reference, alias table, blacklist format, and validation rules
 are in [docs/cli.md](docs/cli.md).
 

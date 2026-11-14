@@ -163,6 +163,9 @@ Redirect DNS when the provider poisons answers:
 .\shadowdpi.exe -5 --dns-addr 77.88.8.8 --dns-port 1253
 ```
 
+Ready-made recipes for Turkish providers, including DNS redirect variants and a
+service installer, are in [presets/turkiye](../presets/turkiye/README.md).
+
 Diagnose filter setup without leaving the program running:
 
 ```powershell

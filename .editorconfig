@@ -16,3 +16,7 @@ indent_size = 2
 # Markdown wraps by hand, so trailing spaces are not meaningful.
 [*.md]
 trim_trailing_whitespace = false
+
+# Windows batch files must keep CRLF so cmd.exe parses labels and blocks.
+[*.{cmd,bat}]
+end_of_line = crlf

@@ -12,6 +12,7 @@ on:
       - 'resources/**'
       - 'third_party/**'
       - 'docs/**'
+      - 'presets/**'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
       - 'NOTICE'
@@ -27,6 +28,7 @@ on:
       - 'resources/**'
       - 'third_party/**'
       - 'docs/**'
+      - 'presets/**'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
       - '.github/workflows/build.yml'
@@ -100,6 +102,7 @@ jobs:
           Copy-Item NOTICE $dir
           Copy-Item README.md $dir
           Copy-Item docs $dir -Recurse
+          Copy-Item presets $dir -Recurse
           $resourceDir = Join-Path $dir 'resources'
           New-Item -ItemType Directory -Path $resourceDir | Out-Null
           Copy-Item resources/logo.png $resourceDir

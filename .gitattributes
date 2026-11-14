@@ -1,0 +1,4 @@
+# Windows batch files must keep CRLF in the working tree and in release
+# archives, so cmd.exe reads labels and multi-line blocks correctly.
+*.cmd text eol=crlf
+*.bat text eol=crlf
