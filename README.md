@@ -185,9 +185,6 @@ executable, configure with `-DSHADOWDPI_BUILD_TESTS=OFF`.
 - `benchmark`: parser throughput against the WinDivert helper, with a speedup
   floor enforced in optimized builds.
 
-The icon is optional. Place a multi-size `.ico` at `resources\icon.ico` and
-reconfigure; replacing it later triggers a resource rebuild automatically.
-
 ## Windows service
 
 The executable registers itself as the `ShadowDPI` service when started by the
