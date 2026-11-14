@@ -150,6 +150,10 @@ void test_cli_options()
     CHECK(config.dns.v6_server.has_value());
     CHECK(config.dns.v6_port == 5353);
 
+    config = parse({"--ready-file", "C:/temp/ready.txt"});
+    CHECK(config.ready_file ==
+          std::filesystem::path("C:/temp/ready.txt"));
+
     config = parse({"--auto-ttl", "1-4-10", "--min-ttl", "3"});
     CHECK(config.fake.enabled);
     CHECK(config.fake.auto_ttl.enabled);
@@ -175,6 +179,8 @@ void test_cli_options()
     CHECK(parse_throws({"--dns-addr", "not-an-ip"}));
     CHECK(parse_throws({"--dnsv6-addr", "1.2.3.4"}));
     CHECK(parse_throws({"--unknown-option"}));
+    CHECK(parse_throws({"--ready-file", ""}));
+    CHECK(parse_throws({"--ready-file", "a", "--ready-file", "b"}));
     CHECK(parse_throws({"--fake-gen", "0"}));
     CHECK(parse_throws({"--auto-ttl", "1-2"}));
     CHECK(parse_throws({"--preset", "10"}));

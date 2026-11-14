@@ -66,6 +66,7 @@ struct Config {
     std::vector<std::uint16_t> extra_ports;
     std::vector<std::uint16_t> ip_ids;
     std::vector<std::filesystem::path> blacklists;
+    std::filesystem::path ready_file;
     bool allow_no_sni{false};
 
     FakeOptions fake;

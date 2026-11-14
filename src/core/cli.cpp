@@ -47,7 +47,8 @@ enum class ArgumentKind {
         name == "http-keepalive-fragment" || name == "https-fragment" ||
         name == "port" || name == "ip-id" || name == "dns-addr" ||
         name == "dns-port" || name == "dnsv6-addr" || name == "dnsv6-port" ||
-        name == "blacklist" || name == "fake-ttl" || name == "set-ttl" ||
+        name == "blacklist" || name == "ready-file" ||
+        name == "fake-ttl" || name == "set-ttl" ||
         name == "min-ttl" || name == "fake-hex" || name == "fake-from-hex" ||
         name == "fake-sni" || name == "fake-with-sni" || name == "fake-gen" ||
         name == "fake-resend") {
@@ -234,6 +235,15 @@ void apply_long_option(Config& config,
     }
     else if (name == "blacklist") {
         config.blacklists.emplace_back(std::string(*value));
+    }
+    else if (name == "ready-file") {
+        if (value->empty()) {
+            throw CliError("--ready-file requires a path");
+        }
+        if (!config.ready_file.empty()) {
+            throw CliError("--ready-file may only be specified once");
+        }
+        config.ready_file = std::string(*value);
     }
     else if (name == "allow-no-sni") {
         config.allow_no_sni = true;
@@ -505,6 +515,7 @@ std::string help_text()
         "  -v, --verbose                  verbose diagnostics\n"
         "  --preset <1-9>                 apply a preset mode (also -1 ... -9)\n"
         "  --debug-exit                   open filters and exit immediately\n"
+        "  --ready-file <path>            write a file after the filters open\n"
         "\n"
         "Passive DPI and QUIC:\n"
         "  -p, --block-passive            block passive DPI redirects/RSTs\n"

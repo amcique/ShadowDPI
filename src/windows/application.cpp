@@ -1,5 +1,6 @@
 #include "application.hpp"
 
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -71,6 +72,7 @@ private:
     void load_blacklists();
     void flush_dns_cache();
     bool open_filters();
+    void write_ready_file() const;
     void shutdown_filters() noexcept;
     void loop();
 
@@ -122,6 +124,8 @@ int Application::run()
     if (!open_filters()) {
         return 1;
     }
+
+    write_ready_file();
 
     if (config_.debug_exit) {
         logger_.info("Debug exit: filters opened successfully.");
@@ -292,6 +296,28 @@ void Application::shutdown_filters() noexcept
         handle.shutdown();
     }
     main_handle_.shutdown();
+}
+
+void Application::write_ready_file() const
+{
+    if (config_.ready_file.empty()) {
+        return;
+    }
+
+    std::ofstream file(config_.ready_file, std::ios::trunc);
+    if (!file) {
+        logger_.warning("cannot write ready file: " +
+                        config_.ready_file.string());
+        return;
+    }
+
+    file << kProgramName << ' ' << kVersion << '\n';
+    file << "pid " << GetCurrentProcessId() << '\n';
+    file.flush();
+    if (!file) {
+        logger_.warning("cannot write ready file: " +
+                        config_.ready_file.string());
+    }
 }
 
 void Application::loop()

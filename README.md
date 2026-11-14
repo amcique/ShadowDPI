@@ -108,6 +108,26 @@ Useful variations:
 `-9` blocks QUIC deliberately. If an application needs QUIC and cannot fall
 back to TCP, start from `-5` instead.
 
+### Find a working strategy
+
+Hand-picked presets are a starting point, not a guarantee. The strategy scanner
+tests presets and option combinations against a list of URLs, using the same
+baseline comparison as zapret's blockcheck. It starts one ShadowDPI process per
+candidate, waits for `--ready-file`, probes the URLs with `curl.exe`, and
+reports the first strategy that recovers every blocked URL without breaking a
+working one.
+
+```powershell
+.\tools\blockcheck.ps1 -ScanLevel quick
+.\tools\blockcheck.ps1 -UrlFile .\blocked.txt -ScanLevel standard -Json result.json
+.\tools\blockcheck.ps1 -Urls wikipedia.org,x.com -DnsAddr 77.88.8.8 -DnsPort 1253
+```
+
+Edit `tools\blockcheck-urls.txt` or pass `-Urls`. The scanner needs
+Administrator rights and `curl.exe`, and it checks for a conflicting ShadowDPI
+instance before it starts. Scan levels, result verdicts, JSON fields, and exit
+codes are documented in [docs/blockcheck.md](docs/blockcheck.md).
+
 ### Turkish presets
 
 Six ready-made recipes for Turkish providers are in
@@ -149,6 +169,8 @@ decrypted and no certificate is installed.
 - **Administrator privileges.** The WinDivert driver is loaded on first run.
 - **No runtime install.** The executable uses the static MSVC runtime; the
   release bundles the matching WinDivert DLL and driver.
+- **PowerShell 5.1 and `curl.exe`** are needed only for the optional strategy
+  scanner. Both ship with Windows 10 and later.
 
 ## Build from source (MSVC x64)
 
@@ -211,7 +233,9 @@ sc delete ShadowDPI
 ## Limits
 
 - **No universal preset.** DPI behavior differs by provider and changes over
-  time. `-9` is a starting point, not a guarantee.
+  time. `-9` is a starting point, not a guarantee. Run
+  [the strategy scanner](docs/blockcheck.md) against your own URL list when the
+  presets do not work.
 - **IPv6 is implemented but not field-proven.** The benchmark host had no live
   IPv6 DPI path, so IPv6 evasion was not validated against a real provider.
 - **QUIC blocking changes behavior.** `-9` intentionally forces TCP fallback.

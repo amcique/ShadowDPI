@@ -42,6 +42,7 @@ and cannot fall back, use `-5` instead.
 | `-v`, `--verbose` | Enable verbose diagnostics. |
 | `--preset <1-9>` | Apply a preset. The short forms `-1` … `-9` are equivalent. |
 | `--debug-exit` | Open the WinDivert filters, report success, and exit. Useful for diagnostics. |
+| `--ready-file <path>` | Write a readiness file after the filters are open, then keep running. The file contains the version and process ID. Used by `tools/blockcheck.ps1`; the caller removes stale files before starting. |
 
 ### Passive DPI and QUIC
 
@@ -171,6 +172,12 @@ Diagnose filter setup without leaving the program running:
 
 ```powershell
 .\shadowdpi.exe -9 --verbose --debug-exit
+```
+
+Signal readiness to another program after the filters are open:
+
+```powershell
+.\shadowdpi.exe -5 --ready-file C:\Temp\shadowdpi.ready
 ```
 
 ## Validation rules
