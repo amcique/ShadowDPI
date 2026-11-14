@@ -42,7 +42,7 @@ and cannot fall back, use `-5` instead.
 | `-v`, `--verbose` | Enable verbose diagnostics. |
 | `--preset <1-9>` | Apply a preset. The short forms `-1` … `-9` are equivalent. |
 | `--debug-exit` | Open the WinDivert filters, report success, and exit. Useful for diagnostics. |
-| `--ready-file <path>` | Write a readiness file after the filters are open, then keep running. The file contains the version and process ID. Used by `tools/blockcheck.ps1`; the caller removes stale files before starting. |
+| `--ready-file <path>` | Write a readiness file after the filters are open, then keep running. The file contains the version and process ID. Used by `install.ps1 -Action scan`; the caller removes stale files before starting. |
 
 ### Passive DPI and QUIC
 
@@ -165,7 +165,7 @@ Redirect DNS when the provider poisons answers:
 ```
 
 To find a working combination automatically, run
-[the strategy scanner](blockcheck.md) against your blocked sites.
+[the strategy scanner](scan.md) against your blocked sites.
 
 Diagnose filter setup without leaving the program running:
 

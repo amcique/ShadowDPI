@@ -13,6 +13,7 @@ on:
       - 'third_party/**'
       - 'docs/**'
       - 'tools/**'
+      - 'install.ps1'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
       - 'NOTICE'
@@ -29,6 +30,7 @@ on:
       - 'third_party/**'
       - 'docs/**'
       - 'tools/**'
+      - 'install.ps1'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
       - '.github/workflows/build.yml'
@@ -101,6 +103,7 @@ jobs:
           Copy-Item LICENSE $dir
           Copy-Item NOTICE $dir
           Copy-Item README.md $dir
+          Copy-Item install.ps1 $dir
           Copy-Item docs $dir -Recurse
           Copy-Item tools $dir -Recurse
           $resourceDir = Join-Path $dir 'resources'

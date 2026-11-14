@@ -67,14 +67,28 @@ in [docs/performance.md](docs/performance.md).
 ## Getting started
 
 1. Download the [latest release](https://github.com/amcique/ShadowDPI/releases).
-2. Unpack it anywhere. The archive already contains `WinDivert.dll` and
-   `WinDivert64.sys`.
-3. Run `shadowdpi.exe` from an elevated prompt, or double-click it and accept
-   the UAC prompt.
+2. Unpack it anywhere. The archive already contains `install.ps1`,
+   `WinDivert.dll`, and `WinDivert64.sys`.
+3. From an elevated PowerShell in the unpacked folder, run:
 
-With no arguments ShadowDPI applies `-9`, which is the right first try for most
-providers. When updating, replace `shadowdpi.exe`, `WinDivert.dll`, and
-`WinDivert64.sys` together so their versions stay matched.
+   ```powershell
+   .\install.ps1
+   ```
+
+   Choose Install in the menu. The installer copies the files to
+   `%ProgramFiles%\ShadowDPI`, registers the `ShadowDPI` service with `-9`, and
+   starts it. Use `-Action install -NoService` to copy the files without
+   creating a service.
+
+To upgrade, unpack the new release, run `.\install.ps1 -Action upgrade` from
+that folder, and keep the existing service settings. To change the service
+arguments or remove the service, run `.\install.ps1 -Action reconfigure`.
+
+You can still run `shadowdpi.exe` directly from an elevated prompt, or
+double-click it and accept the UAC prompt. With no arguments it applies `-9`,
+which is the right first try for most providers. When updating by hand, replace
+`shadowdpi.exe`, `WinDivert.dll`, and `WinDivert64.sys` together so their
+versions stay matched.
 
 If the provider poisons DNS answers, either enable secure DNS in the browser or
 redirect DNS at the packet layer:
@@ -118,21 +132,23 @@ reports the first strategy that recovers every blocked URL without breaking a
 working one.
 
 ```powershell
-.\tools\blockcheck.ps1 -ScanLevel quick
-.\tools\blockcheck.ps1 -UrlFile .\blocked.txt -ScanLevel standard -Json result.json
-.\tools\blockcheck.ps1 -Urls wikipedia.org,x.com -DnsAddr 77.88.8.8 -DnsPort 1253
+.\install.ps1 -Action scan -ScanLevel quick
+.\install.ps1 -Action scan -UrlFile .\blocked.txt -ScanLevel standard -Json result.json
+.\install.ps1 -Action scan -Urls wikipedia.org,x.com -DnsAddr 77.88.8.8 -DnsPort 1253
 ```
 
-Edit `tools\blockcheck-urls.txt` or pass `-Urls`. In an interactive session the
-scanner asks which DNS resolver to use: Cloudflare, Google, another resolver,
-or the system resolver. Pass `-DnsResolver system` to skip the question, or
-`-DnsAddr` when you need a custom address and port. The scanner needs
-Administrator rights and `curl.exe`, and it checks for a conflicting ShadowDPI
-instance before it starts. Scan levels, result verdicts, JSON fields, and exit
-codes are documented in [docs/blockcheck.md](docs/blockcheck.md).
+Scanning is also a choice in the `install.ps1` menu. Edit `tools\scan-urls.txt`
+or pass `-Urls`. In an interactive session the scanner asks which DNS resolver
+to use: Cloudflare, Google, another resolver, or the system resolver. Pass
+`-DnsResolver system` to skip the question, or `-DnsAddr` when you need a
+custom address and port. The scanner needs Administrator rights and `curl.exe`,
+and it stops an installed running service for the baseline before starting it
+again. Scan levels, result verdicts, JSON fields, and exit codes are documented
+in [docs/scan.md](docs/scan.md).
 
 The full option reference, alias table, blacklist format, and validation rules
-are in [docs/cli.md](docs/cli.md).
+are in [docs/cli.md](docs/cli.md). Installer actions, service settings, and
+`install.json` are documented in [docs/install.md](docs/install.md).
 
 ## Under the hood
 
@@ -162,11 +178,14 @@ decrypted and no certificate is installed.
 - **Windows 10 or 11, x64.** Windows 7 and 8.1 can work if the system trusts
   SHA-2 driver signatures ([KB3033929](https://www.microsoft.com/en-us/download/details.aspx?id=46148)),
   but are not the primary test target.
-- **Administrator privileges.** The WinDivert driver is loaded on first run.
-- **No runtime install.** The executable uses the static MSVC runtime; the
-  release bundles the matching WinDivert DLL and driver.
-- **PowerShell 5.1 and `curl.exe`** are needed only for the optional strategy
-  scanner. Both ship with Windows 10 and later.
+- **Administrator privileges.** The installer registers a service, and the
+  WinDivert driver is loaded on first run.
+- **Self-contained executable.** The executable uses the static MSVC runtime;
+  the release bundles the matching WinDivert DLL and driver. Running
+  `install.ps1` is optional and only copies those files and registers the
+  service.
+- **PowerShell 5.1** is needed for `install.ps1`. The strategy scanner also
+  needs `curl.exe`. Both ship with Windows 10 and later.
 
 ## Build from source (MSVC x64)
 
@@ -210,8 +229,21 @@ executable, configure with `-DSHADOWDPI_BUILD_TESTS=OFF`.
 
 ## Windows service
 
-The executable registers itself as the `ShadowDPI` service when started by the
-Service Control Manager and shuts down cleanly on a stop request.
+The installer registers an auto-start `ShadowDPI` service by default:
+
+```powershell
+.\install.ps1 -Action install
+```
+
+Change the service name, arguments, or start mode with:
+
+```powershell
+.\install.ps1 -Action reconfigure -ServiceArgs '-5'
+```
+
+The executable registers itself as the service when started by the Service
+Control Manager and shuts down cleanly on a stop request. If you manage the
+service by hand, the equivalent commands are:
 
 ```powershell
 sc create ShadowDPI binPath= "C:\Tools\ShadowDPI\shadowdpi.exe -9" start= auto
@@ -219,18 +251,19 @@ sc description ShadowDPI "Deep Packet Inspection circumvention utility"
 sc start ShadowDPI
 ```
 
-Remove it with:
+Remove the install, including the service, with:
 
 ```powershell
-sc stop ShadowDPI
-sc delete ShadowDPI
+.\install.ps1 -Action uninstall
 ```
+
+The complete installer reference is in [docs/install.md](docs/install.md).
 
 ## Limits
 
 - **No universal preset.** DPI behavior differs by provider and changes over
   time. `-9` is a starting point, not a guarantee. Run
-  [the strategy scanner](docs/blockcheck.md) against your own URL list when the
+  [the strategy scanner](docs/scan.md) against your own URL list when the
   presets do not work.
 - **IPv6 is implemented but not field-proven.** The benchmark host had no live
   IPv6 DPI path, so IPv6 evasion was not validated against a real provider.

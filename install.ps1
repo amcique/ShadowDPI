@@ -1,29 +1,77 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Tests ShadowDPI option combinations against a list of URLs.
+Installs, upgrades, reconfigures, removes, and scans ShadowDPI.
 
 .DESCRIPTION
-Starts one ShadowDPI instance per candidate strategy, waits for the filters to
-open through --ready-file, probes every URL with curl.exe, and reports which
-strategies restore access. The model is a baseline comparison: probes that fail
-without ShadowDPI are targets, and a strategy passes only when every target is
-reachable and no baseline-working probe regresses.
+One script for the release. With no arguments it opens an interactive menu.
+Install actions copy shadowdpi.exe, WinDivert.dll, WinDivert64.sys, the
+documentation, and the tools from the folder that contains this script into
+%ProgramFiles%\ShadowDPI. They also register an auto-start Windows service and
+write install.json in the install folder. Reinstall and upgrade preserve the
+service name, arguments, start type, and running state unless you pass an
+explicit override.
 
-The script does not follow redirects. A redirect to another host is treated as
+The scan action is the strategy scanner. It starts one ShadowDPI instance per
+candidate, waits for the filters to open through --ready-file, probes every URL
+with curl.exe, and reports which strategies restore access. The model is a
+baseline comparison: probes that fail without ShadowDPI are targets, and a
+strategy passes only when every target is reachable and no baseline-working
+probe regresses. An installed, running ShadowDPI service is stopped for the
+scan and started again afterward.
+
+The scanner does not follow redirects. A redirect to another host is treated as
 a suspicious DPI response, and HTTP 400 is treated as a sign that fake packets
 reached the server.
+
+.PARAMETER Action
+menu opens the interactive menu. install installs or reinstalls, upgrade
+requires an existing installation, reconfigure changes service settings,
+uninstall removes the service and the install folder, and scan runs the
+strategy scanner. Defaults to menu.
+
+.PARAMETER InstallPath
+Install folder. Defaults to %ProgramFiles%\ShadowDPI, or to the folder recorded
+in install.json when one exists.
+
+.PARAMETER ServiceName
+Windows service name. Defaults to ShadowDPI for a new install. Reinstall and
+upgrade preserve the existing name.
+
+.PARAMETER ServiceArgs
+Command-line arguments stored in the service binary path. Defaults to -9 for a
+new install. Reinstall and upgrade preserve the existing arguments.
+
+.PARAMETER NoService
+Do not create a new Windows service. During reinstall or upgrade, an existing
+service is stopped for the file update and started again afterward so its
+configuration is preserved. During reconfigure, this removes the service.
+
+.PARAMETER NoStart
+Leave the service stopped after install, upgrade, or reconfigure.
+
+.PARAMETER SourcePath
+Folder that contains shadowdpi.exe and the WinDivert files. Defaults to the
+folder that contains this script, which is the extracted release folder.
+
+.PARAMETER Quiet
+Do not ask configuration questions. Explicit parameters and defaults are used.
+
+.PARAMETER Force
+Skip confirmation prompts. Uninstall from a non-interactive session requires
+this switch.
 
 .PARAMETER Urls
 One or more URLs to test. Overrides the URL file.
 
 .PARAMETER UrlFile
 A text file with one URL per line. Blank lines and lines starting with # or ;
-are ignored. A bare host is treated as https://host/.
+are ignored. A bare host is treated as https://host/. Defaults to
+tools\scan-urls.txt next to this script.
 
 .PARAMETER Exe
-Path to shadowdpi.exe. By default the script looks next to the tools folder,
-then in the usual build output directories.
+Path to shadowdpi.exe. By default the script prefers an installed copy, then
+the copy next to this script, then the usual build output directories.
 
 .PARAMETER ScanLevel
 quick tests presets 1-9. standard adds hand-picked combinations. full adds
@@ -84,16 +132,34 @@ Print the candidate matrix and exit without touching the network.
 Keep the temporary directory with ready files and process logs.
 
 .EXAMPLE
-.\tools\blockcheck.ps1 -ScanLevel quick
+.\install.ps1
 
 .EXAMPLE
-.\tools\blockcheck.ps1 -Urls https://example.com/ -ScanLevel full -Json result.json
+.\install.ps1 -Action install -ServiceArgs '-5'
 
 .EXAMPLE
-.\tools\blockcheck.ps1 -UrlFile .\blocked.txt -DnsAddr 77.88.8.8 -DnsPort 1253
+.\install.ps1 -Action upgrade
+
+.EXAMPLE
+.\install.ps1 -Action scan -ScanLevel quick
+
+.EXAMPLE
+.\install.ps1 -Action uninstall -Force
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet('menu', 'install', 'upgrade', 'reconfigure', 'uninstall', 'scan')]
+    [string]$Action = 'menu',
+
+    [string]$InstallPath = '',
+    [string]$ServiceName = '',
+    [string]$ServiceArgs = '',
+    [switch]$NoService,
+    [switch]$NoStart,
+    [string]$SourcePath = '',
+    [switch]$Quiet,
+    [switch]$Force,
+
     [string[]]$Urls,
     [string]$UrlFile = '',
     [string]$Exe = '',
@@ -129,9 +195,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$script:BoundParameters = @{}
+foreach ($key in $PSBoundParameters.Keys) {
+    $script:BoundParameters[$key] = $PSBoundParameters[$key]
+}
+
 $script:UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 $script:WorkRoot = $null
 $script:ActiveProcess = $null
+$script:ScanRestartService = $null
+$script:DefaultServiceName = 'ShadowDPI'
+$script:DefaultServiceArgs = '-9'
+$script:DefaultStartType = 'auto'
+$script:InstallMetadataName = 'install.json'
+$script:ScriptPath = $PSCommandPath
 
 function Write-Info {
     param([string]$Message)
@@ -141,6 +218,54 @@ function Write-Info {
 function Write-Warn {
     param([string]$Message)
     Write-Host ('warning: ' + $Message) -ForegroundColor Yellow
+}
+
+function Read-ValueWithDefault {
+    param(
+        [string]$Prompt,
+        [string]$Default = ''
+    )
+
+    $suffix = ''
+    if ($Default) {
+        $suffix = " [$Default]"
+    }
+
+    $text = [string](Read-Host ($Prompt + $suffix))
+    $text = $text.Trim()
+    if (-not $text) {
+        return $Default
+    }
+    return $text
+}
+
+function Read-YesNo {
+    param(
+        [string]$Prompt,
+        [bool]$Default = $true
+    )
+
+    $suffix = '[y/N]'
+    if ($Default) {
+        $suffix = '[Y/n]'
+    }
+
+    while ($true) {
+        $text = [string](Read-Host ($Prompt + ' ' + $suffix))
+        $text = $text.Trim()
+        if (-not $text) {
+            return $Default
+        }
+
+        switch ($text.ToLowerInvariant()) {
+            'y' { return $true }
+            'yes' { return $true }
+            'n' { return $false }
+            'no' { return $false }
+        }
+
+        Write-Warn 'Enter Y or N.'
+    }
 }
 
 function Test-InteractiveHost {
@@ -267,10 +392,12 @@ function Resolve-ExePath {
         return (Resolve-Path -LiteralPath $Path).Path
     }
 
+    $installPath = Get-InstallPath
     $candidates = @(
-        (Join-Path $PSScriptRoot '..\shadowdpi.exe'),
-        (Join-Path $PSScriptRoot '..\build\msvc-x64\Release\shadowdpi.exe'),
-        (Join-Path $PSScriptRoot '..\build\msvc-x64\Debug\shadowdpi.exe')
+        (Join-Path $installPath 'shadowdpi.exe'),
+        (Join-Path $PSScriptRoot 'shadowdpi.exe'),
+        (Join-Path $PSScriptRoot 'build\msvc-x64\Release\shadowdpi.exe'),
+        (Join-Path $PSScriptRoot 'build\msvc-x64\Debug\shadowdpi.exe')
     )
 
     foreach ($candidate in $candidates) {
@@ -279,7 +406,7 @@ function Resolve-ExePath {
         }
     }
 
-    throw 'shadowdpi.exe was not found. Pass -Exe or unpack the release next to the tools folder.'
+    throw 'shadowdpi.exe was not found. Pass -Exe or run the script from an extracted release folder.'
 }
 
 function Invoke-NativeText {
@@ -301,6 +428,735 @@ function Invoke-NativeText {
     }
 }
 
+function Invoke-NativeResult {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments
+    )
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& $FilePath @Arguments 2>&1 | Out-String)
+        return [pscustomobject]@{
+            Output   = $output.Trim()
+            ExitCode = $LASTEXITCODE
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+function Invoke-ScCommandLine {
+    param([string]$Arguments)
+
+    $sc = Join-Path $env:SystemRoot 'System32\sc.exe'
+    $stdoutFile = [IO.Path]::GetTempFileName()
+    $stderrFile = [IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath $sc -ArgumentList $Arguments -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -WindowStyle Hidden
+        $stdout = [string](Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)
+        $stderr = [string](Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)
+        $text = ($stdout + $stderr).Trim()
+        return [pscustomobject]@{
+            Output   = $text
+            ExitCode = $process.ExitCode
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Resolve-FullPath {
+    param(
+        [string]$Path,
+        [string]$BasePath = ''
+    )
+
+    $text = ([string]$Path).Trim()
+    if (-not $text) {
+        throw 'A path is required.'
+    }
+
+    if ($text.StartsWith('"') -and $text.EndsWith('"') -and $text.Length -ge 2) {
+        $text = $text.Substring(1, $text.Length - 2)
+    }
+
+    $text = [Environment]::ExpandEnvironmentVariables($text)
+    if ($text -eq '~') {
+        $text = $HOME
+    }
+    elseif ($text.StartsWith('~\') -or $text.StartsWith('~/')) {
+        $text = Join-Path $HOME $text.Substring(2)
+    }
+
+    if (-not [IO.Path]::IsPathRooted($text)) {
+        if (-not $BasePath) {
+            $BasePath = (Get-Location).ProviderPath
+        }
+        $text = Join-Path $BasePath $text
+    }
+
+    $full = [IO.Path]::GetFullPath($text)
+    if ($full.Length -gt 3) {
+        $full = $full.TrimEnd([char[]]@('\', '/'))
+    }
+    return $full
+}
+
+function Get-DefaultInstallPath {
+    $base = $env:ProgramW6432
+    if (-not $base) {
+        $base = [Environment]::GetFolderPath('ProgramFiles')
+    }
+    if (-not $base) {
+        $base = $env:ProgramFiles
+    }
+    if (-not $base) {
+        throw 'The Program Files folder could not be located.'
+    }
+
+    return (Join-Path $base 'ShadowDPI')
+}
+
+function Assert-X64Windows {
+    if (-not [Environment]::Is64BitOperatingSystem) {
+        throw 'ShadowDPI requires 64-bit Windows.'
+    }
+}
+
+function Get-VersionNumber {
+    param([string]$Text)
+
+    if (-not $Text) {
+        return ''
+    }
+
+    $match = [regex]::Match($Text, '(\d+(?:\.\d+){1,3})')
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+    return ''
+}
+
+function Assert-ServiceName {
+    param([string]$Name)
+
+    if (-not $Name) {
+        throw 'A service name is required.'
+    }
+    if ($Name.Length -gt 200) {
+        throw 'The service name is too long.'
+    }
+    if (-not [regex]::IsMatch($Name, '^[A-Za-z0-9][A-Za-z0-9._ -]*$', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)) {
+        throw "Invalid service name: $Name. Use letters, digits, spaces, dots, underscores, and hyphens."
+    }
+}
+
+function Assert-SafeInstallPath {
+    param([string]$Path)
+
+    $full = Resolve-FullPath -Path $Path
+    if ($full -match '^[A-Za-z]:$') {
+        throw "Refusing to use a drive root as the install path: $full"
+    }
+
+    $protected = @(
+        $env:SystemRoot,
+        $env:ProgramFiles,
+        $env:ProgramW6432,
+        [Environment]::GetFolderPath('UserProfile')
+    )
+    foreach ($candidate in $protected) {
+        if (-not $candidate) {
+            continue
+        }
+        $resolved = Resolve-FullPath -Path $candidate
+        if ($full.Equals($resolved, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to use a protected folder as the install path: $full"
+        }
+    }
+
+    return $full
+}
+
+function Get-ServiceLaunch {
+    param([string]$PathName)
+
+    $result = [pscustomobject]@{
+        ExePath   = ''
+        Arguments = ''
+    }
+    if (-not $PathName) {
+        return $result
+    }
+
+    $text = $PathName.Trim()
+    if ($text.StartsWith('"')) {
+        $end = $text.IndexOf('"', 1)
+        if ($end -gt 1) {
+            $result.ExePath = $text.Substring(1, $end - 1)
+            $result.Arguments = $text.Substring($end + 1).Trim()
+            return $result
+        }
+    }
+
+    $match = [regex]::Match($text, '^(?i)(.*?\.exe)(?:\s+(.*))?$')
+    if ($match.Success) {
+        $result.ExePath = $match.Groups[1].Value.Trim()
+        $result.Arguments = $match.Groups[2].Value.Trim()
+    }
+
+    return $result
+}
+
+function Get-ServiceInfo {
+    param([string]$Name)
+
+    if (-not $Name) {
+        return $null
+    }
+
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        return $null
+    }
+
+    $startMode = ''
+    $pathName = ''
+    try {
+        $filter = "Name='" + ($Name -replace "'", "''") + "'"
+        $cim = Get-CimInstance -ClassName Win32_Service -Filter $filter -ErrorAction Stop
+        if ($null -ne $cim) {
+            $startMode = [string]$cim.StartMode
+            $pathName = [string]$cim.PathName
+        }
+    }
+    catch {
+    }
+
+    return [pscustomobject]@{
+        Name        = [string]$service.Name
+        Status      = [string]$service.Status
+        StartMode   = $startMode
+        PathName    = $pathName
+        DisplayName = [string]$service.DisplayName
+    }
+}
+
+function Wait-ServiceStatus {
+    param(
+        [string]$Name,
+        [string]$Status,
+        [int]$TimeoutSec = 30
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $service = Get-ServiceInfo -Name $Name
+        if ($null -eq $service) {
+            return ($Status -eq 'Deleted')
+        }
+        if ([string]$service.Status -eq $Status) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    return $false
+}
+
+function Wait-ForNoShadowProcess {
+    param(
+        [int]$TimeoutSec = 10,
+        [switch]$ThrowIfFound
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $processes = @(Get-Process -Name 'shadowdpi' -ErrorAction SilentlyContinue)
+        if ($processes.Count -eq 0) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    if ($ThrowIfFound) {
+        throw 'shadowdpi.exe is still running. Close console instances and try again.'
+    }
+    return $false
+}
+
+function Stop-ShadowService {
+    param([string]$Name)
+
+    $service = Get-ServiceInfo -Name $Name
+    if ($null -eq $service) {
+        return $false
+    }
+    if ($service.Status -eq 'Stopped') {
+        return $false
+    }
+
+    Write-Info "Stopping service $Name..."
+    $result = Invoke-NativeResult -FilePath (Join-Path $env:SystemRoot 'System32\sc.exe') -Arguments @('stop', $Name)
+    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1060|1062|1056') {
+        throw "Could not stop service $Name. $($result.Output)"
+    }
+
+    if (-not (Wait-ServiceStatus -Name $Name -Status 'Stopped' -TimeoutSec 30)) {
+        throw "Service $Name did not stop within 30 seconds."
+    }
+
+    [void](Wait-ForNoShadowProcess -TimeoutSec 10)
+    return $true
+}
+
+function Start-ShadowService {
+    param([string]$Name)
+
+    $service = Get-ServiceInfo -Name $Name
+    if ($null -eq $service) {
+        throw "Service $Name does not exist."
+    }
+    if ($service.Status -eq 'Running') {
+        return
+    }
+
+    Write-Info "Starting service $Name..."
+    $result = Invoke-NativeResult -FilePath (Join-Path $env:SystemRoot 'System32\sc.exe') -Arguments @('start', $Name)
+    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1056') {
+        throw "Could not start service $Name. $($result.Output)"
+    }
+
+    if (-not (Wait-ServiceStatus -Name $Name -Status 'Running' -TimeoutSec 30)) {
+        $latest = Get-ServiceInfo -Name $Name
+        $status = 'missing'
+        if ($null -ne $latest) {
+            $status = $latest.Status
+        }
+        throw "Service $Name did not reach Running. Current status: $status."
+    }
+}
+
+function ConvertTo-ScStartMode {
+    param([string]$StartType)
+
+    switch ($StartType) {
+        'auto' { return 'auto' }
+        'demand' { return 'demand' }
+        'disabled' { return 'disabled' }
+    }
+
+    throw "Unknown service start type: $StartType"
+}
+
+function Get-ServiceBinaryPath {
+    param(
+        [string]$ExePath,
+        [string]$Arguments
+    )
+
+    $value = '"' + $ExePath + '"'
+    if ($Arguments) {
+        $value = $value + ' ' + $Arguments
+    }
+    return $value
+}
+
+function New-ShadowService {
+    param(
+        [string]$Name,
+        [string]$ExePath,
+        [string]$Arguments,
+        [string]$StartType
+    )
+
+    Assert-ServiceName -Name $Name
+    $binaryPath = Get-ServiceBinaryPath -ExePath $ExePath -Arguments $Arguments
+    $startup = 'Automatic'
+    switch ($StartType) {
+        'auto' {
+            $startup = 'Automatic'
+        }
+        'demand' {
+            $startup = 'Manual'
+        }
+        'disabled' {
+            $startup = 'Disabled'
+        }
+    }
+
+    Write-Info "Creating service $Name..."
+    try {
+        New-Service -Name $Name -BinaryPathName $binaryPath -DisplayName $Name -StartupType $startup -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "Could not create service $Name. $($_.Exception.Message)"
+    }
+
+    $description = Invoke-ScCommandLine -Arguments ('description "' + $Name + '" "Deep Packet Inspection circumvention utility"')
+    if ($description.ExitCode -ne 0) {
+        Write-Warn "The service description could not be set. $($description.Output)"
+    }
+}
+
+function Set-ShadowService {
+    param(
+        [string]$Name,
+        [string]$ExePath,
+        [string]$Arguments,
+        [string]$StartType
+    )
+
+    Assert-ServiceName -Name $Name
+    $binaryPath = Get-ServiceBinaryPath -ExePath $ExePath -Arguments $Arguments
+    $startMode = ConvertTo-ScStartMode -StartType $StartType
+    $quotedBinary = '"' + ($binaryPath -replace '"', '\"') + '"'
+
+    Write-Info "Updating service $Name..."
+    $argumentLine = 'config "' + $Name + '" binPath= ' + $quotedBinary + ' start= ' + $startMode + ' DisplayName= "' + $Name + '"'
+    $result = Invoke-ScCommandLine -Arguments $argumentLine
+    if ($result.ExitCode -ne 0) {
+        throw "Could not update service $Name. $($result.Output)"
+    }
+
+    $description = Invoke-ScCommandLine -Arguments ('description "' + $Name + '" "Deep Packet Inspection circumvention utility"')
+    if ($description.ExitCode -ne 0) {
+        Write-Warn "The service description could not be set. $($description.Output)"
+    }
+}
+
+function Remove-ShadowService {
+    param([string]$Name)
+
+    $service = Get-ServiceInfo -Name $Name
+    if ($null -eq $service) {
+        return
+    }
+
+    [void](Stop-ShadowService -Name $Name)
+    $sc = Join-Path $env:SystemRoot 'System32\sc.exe'
+    Write-Info "Deleting service $Name..."
+    $result = Invoke-NativeResult -FilePath $sc -Arguments @('delete', $Name)
+    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1060|1072') {
+        throw "Could not delete service $Name. $($result.Output)"
+    }
+
+    if (-not (Wait-ServiceStatus -Name $Name -Status 'Deleted' -TimeoutSec 30)) {
+        throw "Service $Name is still registered after a delete request."
+    }
+}
+
+function Read-InstallMetadata {
+    param([string]$Path)
+
+    $file = Join-Path $Path $script:InstallMetadataName
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        return $null
+    }
+
+    try {
+        return (Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json)
+    }
+    catch {
+        Write-Warn "Could not read $file. The installer will use defaults."
+        return $null
+    }
+}
+
+function Get-InstallConfig {
+    param($Metadata)
+
+    $config = [pscustomobject]@{
+        ServiceEnabled = $false
+        ServiceName    = $script:DefaultServiceName
+        ServiceArgs    = $script:DefaultServiceArgs
+        StartType      = $script:DefaultStartType
+    }
+
+    if ($null -eq $Metadata) {
+        return $config
+    }
+
+    $config.ServiceEnabled = $true
+    if ($null -ne $Metadata.service) {
+        if ($null -ne $Metadata.service.enabled) {
+            if ($Metadata.service.enabled -is [bool]) {
+                $config.ServiceEnabled = $Metadata.service.enabled
+            }
+            elseif ([string]$Metadata.service.enabled -match '^(?i)(true|1|yes)$') {
+                $config.ServiceEnabled = $true
+            }
+            else {
+                $config.ServiceEnabled = $false
+            }
+        }
+        if ($Metadata.service.name) {
+            $config.ServiceName = [string]$Metadata.service.name
+        }
+        if ($null -ne $Metadata.service.arguments) {
+            $config.ServiceArgs = [string]$Metadata.service.arguments
+        }
+        if ($Metadata.service.startType) {
+            $config.StartType = [string]$Metadata.service.startType
+        }
+    }
+
+    return $config
+}
+
+function Get-InstalledState {
+    param([string]$Path)
+
+    if (-not $Path) {
+        $Path = Get-DefaultInstallPath
+    }
+
+    $exePath = Join-Path $Path 'shadowdpi.exe'
+    $metadataPath = Join-Path $Path $script:InstallMetadataName
+    $exeExists = Test-Path -LiteralPath $exePath -PathType Leaf
+    $metadata = Read-InstallMetadata -Path $Path
+    $exists = $exeExists -or ($null -ne $metadata)
+
+    $versionText = ''
+    if ($exeExists) {
+        $versionText = Get-ExeVersion -ExePath $exePath
+    }
+
+    $config = Get-InstallConfig -Metadata $metadata
+    $service = Get-ServiceInfo -Name $config.ServiceName
+
+    if ($null -eq $metadata) {
+        $config.ServiceEnabled = ($null -ne $service)
+        if ($null -ne $service) {
+            $launch = Get-ServiceLaunch -PathName $service.PathName
+            if ($launch.Arguments) {
+                $config.ServiceArgs = $launch.Arguments
+            }
+            switch ($service.StartMode) {
+                'Auto' {
+                    $config.StartType = 'auto'
+                }
+                'Manual' {
+                    $config.StartType = 'demand'
+                }
+                'Disabled' {
+                    $config.StartType = 'disabled'
+                }
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Path          = $Path
+        Exists        = $exists
+        ExePath       = $exePath
+        ExeExists     = $exeExists
+        MetadataPath  = $metadataPath
+        Metadata      = $metadata
+        VersionText   = $versionText
+        Version       = (Get-VersionNumber -Text $versionText)
+        ServiceEnabled = $config.ServiceEnabled
+        ServiceName   = $config.ServiceName
+        ServiceArgs   = $config.ServiceArgs
+        StartType     = $config.StartType
+        Service       = $service
+    }
+}
+
+function Get-InstallPath {
+    if ($script:BoundParameters.ContainsKey('InstallPath') -and $InstallPath) {
+        return (Assert-SafeInstallPath -Path $InstallPath)
+    }
+
+    $defaultPath = Get-DefaultInstallPath
+    $metadata = Read-InstallMetadata -Path $defaultPath
+    if ($null -ne $metadata -and $metadata.installPath) {
+        return (Resolve-FullPath -Path ([string]$metadata.installPath))
+    }
+
+    if ($null -eq $metadata -and -not (Test-Path -LiteralPath (Join-Path $defaultPath 'shadowdpi.exe') -PathType Leaf)) {
+        $names = @()
+        if ($script:BoundParameters.ContainsKey('ServiceName') -and $ServiceName) {
+            $names += $ServiceName
+        }
+        if ($names -notcontains $script:DefaultServiceName) {
+            $names += $script:DefaultServiceName
+        }
+
+        foreach ($name in $names) {
+            $service = Get-ServiceInfo -Name $name
+            if ($null -eq $service) {
+                continue
+            }
+            $launch = Get-ServiceLaunch -PathName $service.PathName
+            if ($launch.ExePath) {
+                return (Split-Path -Parent $launch.ExePath)
+            }
+        }
+    }
+
+    return $defaultPath
+}
+
+function Get-SourceInfo {
+    param([string]$Path)
+
+    if ($Path) {
+        $base = Resolve-FullPath -Path $Path
+    }
+    else {
+        $base = $PSScriptRoot
+    }
+
+    $exePath = Join-Path $base 'shadowdpi.exe'
+    $missing = @()
+    foreach ($name in 'shadowdpi.exe', 'WinDivert.dll', 'WinDivert64.sys') {
+        $candidate = Join-Path $base $name
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            $missing += $name
+        }
+    }
+
+    if ($missing.Count -gt 0) {
+        throw "The release folder is incomplete. Missing from $base`: $($missing -join ', ')."
+    }
+
+    $versionText = Get-ExeVersion -ExePath $exePath
+    return [pscustomobject]@{
+        Path        = $base
+        ExePath     = $exePath
+        VersionText = $versionText
+        Version     = (Get-VersionNumber -Text $versionText)
+    }
+}
+
+function Test-SamePath {
+    param(
+        [string]$First,
+        [string]$Second
+    )
+
+    $a = Resolve-FullPath -Path $First
+    $b = Resolve-FullPath -Path $Second
+    return $a.Equals($b, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Copy-InstallPayload {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath,
+        [string]$ScriptPath
+    )
+
+    Write-Info "Installing files from $SourcePath"
+    if (-not (Test-Path -LiteralPath $DestinationPath -PathType Container)) {
+        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    }
+
+    $files = @(
+        'shadowdpi.exe',
+        'WinDivert.dll',
+        'WinDivert64.sys',
+        'LICENSE',
+        'NOTICE',
+        'README.md',
+        'install.ps1'
+    )
+
+    foreach ($name in $files) {
+        $source = Join-Path $SourcePath $name
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            if ($name -eq 'install.ps1' -and $ScriptPath -and (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
+                $source = $ScriptPath
+            }
+            else {
+                continue
+            }
+        }
+
+        $destination = Join-Path $DestinationPath $name
+        if ((Test-SamePath -First $source -Second $destination)) {
+            continue
+        }
+
+        Copy-Item -LiteralPath $source -Destination $destination -Force
+    }
+
+    foreach ($name in 'docs', 'tools', 'resources') {
+        $sourceDir = Join-Path $SourcePath $name
+        if (-not (Test-Path -LiteralPath $sourceDir -PathType Container)) {
+            continue
+        }
+
+        $destinationDir = Join-Path $DestinationPath $name
+        if ((Test-SamePath -First $sourceDir -Second $destinationDir)) {
+            continue
+        }
+
+        if (-not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+        }
+
+        $items = @(Get-ChildItem -LiteralPath $sourceDir -Force)
+        if ($items.Count -gt 0) {
+            Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destinationDir -Recurse -Force
+        }
+    }
+
+    foreach ($name in 'shadowdpi.exe', 'WinDivert.dll', 'WinDivert64.sys') {
+        $installed = Join-Path $DestinationPath $name
+        if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) {
+            throw "$name was not installed in $DestinationPath."
+        }
+    }
+}
+
+function Write-InstallMetadata {
+    param(
+        [string]$Path,
+        $Metadata,
+        [string]$VersionText,
+        [string]$SourcePath,
+        [bool]$ServiceEnabled,
+        [string]$ServiceName,
+        [string]$ServiceArgs,
+        [string]$StartType,
+        [bool]$Running
+    )
+
+    $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $installedUtc = $now
+    if ($null -ne $Metadata -and $Metadata.installedUtc) {
+        $installedUtc = [string]$Metadata.installedUtc
+    }
+
+    $data = [ordered]@{
+        product       = 'ShadowDPI'
+        schemaVersion = 1
+        version       = (Get-VersionNumber -Text $VersionText)
+        versionText   = $VersionText
+        installPath   = $Path
+        installedUtc  = $installedUtc
+        updatedUtc    = $now
+        sourcePath    = $SourcePath
+        service       = [ordered]@{
+            enabled   = $ServiceEnabled
+            name      = $ServiceName
+            arguments = $ServiceArgs
+            startType = $StartType
+            running   = $Running
+        }
+    }
+
+    $json = $data | ConvertTo-Json -Depth 5
+    $file = Join-Path $Path $script:InstallMetadataName
+    [IO.File]::WriteAllText($file, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function Read-UrlList {
     param(
         [string[]]$InlineUrls,
@@ -313,7 +1169,7 @@ function Read-UrlList {
     }
     else {
         if (-not $File) {
-            $File = Join-Path $PSScriptRoot 'blockcheck-urls.txt'
+            $File = Join-Path $PSScriptRoot 'tools\scan-urls.txt'
         }
         if (-not (Test-Path -LiteralPath $File -PathType Leaf)) {
             throw "URL list was not found at $File"
@@ -556,20 +1412,19 @@ function Get-Strategies {
     return $result.ToArray()
 }
 
-function Assert-Administrator {
+function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Assert-Administrator {
+    if (-not (Test-IsAdministrator)) {
         throw 'This script must run as Administrator. Right-click PowerShell and choose Run as administrator.'
     }
 }
 
 function Assert-NoRunningInstance {
-    $service = Get-Service -Name 'ShadowDPI' -ErrorAction SilentlyContinue
-    if ($null -ne $service -and $service.Status -eq 'Running') {
-        throw 'The ShadowDPI service is running. Stop it with "sc stop ShadowDPI" before scanning.'
-    }
-
     $processes = @(Get-Process -Name 'shadowdpi' -ErrorAction SilentlyContinue)
     if ($processes.Count -gt 0) {
         throw 'An instance of shadowdpi.exe is running. Close it before scanning.'
@@ -1229,10 +2084,17 @@ function Write-Results {
     return $sorted
 }
 
-$exitCode = 0
-$summary = $null
+function Invoke-Scan {
+    param(
+        [ValidateSet('quick', 'standard', 'full')]
+        [string]$Level = ''
+    )
 
-try {
+    $exitCode = 0
+    $summary = $null
+    $ScanLevel = if ($Level) { $Level } else { $ScanLevel }
+
+    try {
     $urls = @(Read-UrlList -InlineUrls $Urls -File $UrlFile)
     $exePath = Resolve-ExePath -Path $Exe
 
@@ -1276,7 +2138,7 @@ try {
         }
         $dnsArgs += @('--dns-addr', $DnsAddr, '--dns-port', "$DnsPort")
     }
-    elseif ($PSBoundParameters.ContainsKey('DnsPort')) {
+    elseif ($script:BoundParameters.ContainsKey('DnsPort')) {
         throw 'DnsPort requires DnsAddr or a DNS resolver choice'
     }
 
@@ -1287,7 +2149,7 @@ try {
         }
         $dnsArgs += @('--dnsv6-addr', $DnsV6Addr, '--dnsv6-port', "$DnsV6Port")
     }
-    elseif ($PSBoundParameters.ContainsKey('DnsV6Port')) {
+    elseif ($script:BoundParameters.ContainsKey('DnsV6Port')) {
         throw 'DnsV6Port requires DnsV6Addr'
     }
 
@@ -1353,11 +2215,18 @@ try {
             $argsText = ($strategy.Args -join ' ').Trim()
             Write-Info ("{0,4}. {1,-55} {2}" -f $number, $strategy.Name, $argsText)
         }
-        exit 0
+        return 0
     }
 
     Assert-Administrator
     Assert-Dependencies -ExePath $exePath
+
+    $installedState = Get-InstalledState -Path (Get-InstallPath)
+    if ($null -ne $installedState.Service -and $installedState.Service.Status -ne 'Stopped') {
+        $script:ScanRestartService = $installedState.Service.Name
+        [void](Stop-ShadowService -Name $script:ScanRestartService)
+    }
+
     Assert-NoRunningInstance
 
     $jsonPath = ''
@@ -1388,7 +2257,7 @@ try {
 
     $exeVersion = Get-ExeVersion -ExePath $exePath
 
-    $script:WorkRoot = Join-Path $env:TEMP ('shadowdpi-blockcheck-' + [Guid]::NewGuid().ToString('N'))
+    $script:WorkRoot = Join-Path $env:TEMP ('shadowdpi-scan-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $script:WorkRoot -Force | Out-Null
     Invoke-ReadyCheck -ExePath $exePath -WorkRoot $script:WorkRoot -TimeoutSec $StartupTimeoutSec
 
@@ -1456,7 +2325,7 @@ try {
     }
 
     $summary = [pscustomobject]@{
-        tool          = 'shadowdpi-blockcheck'
+        tool          = 'shadowdpi-scan'
         formatVersion = 1
         generatedUtc  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         shadowdpi     = [pscustomobject]@{
@@ -1534,6 +2403,595 @@ finally {
             Remove-Item -LiteralPath $script:WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    if ($script:ScanRestartService) {
+        try {
+            Start-ShadowService -Name $script:ScanRestartService
+            Write-Info "Service $($script:ScanRestartService) started again."
+        }
+        catch {
+            Write-Warn "The service $($script:ScanRestartService) could not be restarted: $($_.Exception.Message)"
+        }
+        $script:ScanRestartService = $null
+    }
+}
+
+return $exitCode
+}
+
+function Write-InstallStatus {
+    param($State)
+
+    if (-not $State.Exists) {
+        Write-Info 'ShadowDPI is not installed.'
+        return
+    }
+
+    $version = $State.Version
+    if (-not $version) {
+        $version = 'unknown'
+    }
+    Write-Info "ShadowDPI $version is installed at $($State.Path)."
+
+    if ($null -ne $State.Service) {
+        $startText = $State.StartType
+        switch ($State.StartType) {
+            'auto' {
+                $startText = 'automatic'
+            }
+            'demand' {
+                $startText = 'manual'
+            }
+        }
+        Write-Info "Service: $($State.Service.Name) ($($State.Service.Status), $startText)"
+        Write-Info "Arguments: $($State.ServiceArgs)"
+    }
+    elseif ($State.ServiceEnabled) {
+        Write-Info "Service: $($State.ServiceName) (not registered)"
+    }
+    else {
+        Write-Info 'Service: not installed'
+    }
+}
+
+function Invoke-MenuScan {
+    Write-Info ''
+    Write-Info 'Scan level'
+    Write-Info '  1. Quick'
+    Write-Info '  2. Standard (recommended)'
+    Write-Info '  3. Full'
+
+    $level = 'standard'
+    while ($true) {
+        $answer = [string](Read-Host 'Choice [2]')
+        $answer = $answer.Trim()
+        if (-not $answer -or $answer -eq '2') {
+            $level = 'standard'
+            break
+        }
+        if ($answer -eq '1') {
+            $level = 'quick'
+            break
+        }
+        if ($answer -eq '3') {
+            $level = 'full'
+            break
+        }
+        Write-Warn 'Enter 1, 2, or 3.'
+    }
+
+    return (Invoke-Scan -Level $level)
+}
+
+function Invoke-InstallAction {
+    param(
+        [ValidateSet('install', 'upgrade')]
+        [string]$Mode,
+        [switch]$AssumeYes
+    )
+
+    Assert-Administrator
+    Assert-X64Windows
+
+    $explicitServiceName = ''
+    if ($script:BoundParameters.ContainsKey('ServiceName') -and $ServiceName) {
+        $explicitServiceName = $ServiceName.Trim()
+    }
+    $explicitServiceArgs = $null
+    if ($script:BoundParameters.ContainsKey('ServiceArgs')) {
+        $explicitServiceArgs = $ServiceArgs.Trim()
+    }
+
+    $path = Get-InstallPath
+    $state = Get-InstalledState -Path $path
+
+    if ($Mode -eq 'upgrade' -and -not $state.Exists) {
+        throw "ShadowDPI is not installed at $path. Run the installer with -Action install first."
+    }
+
+    if ($Mode -eq 'install' -and $state.Exists -and -not $AssumeYes -and -not $Force) {
+        if (-not (Test-InteractiveHost)) {
+            throw "ShadowDPI is already installed at $path. Use -Action upgrade or pass -Force."
+        }
+        if (-not (Read-YesNo -Prompt "ShadowDPI is already installed at $path. Reinstall it?" -Default $true)) {
+            Write-Info 'Cancelled.'
+            return 0
+        }
+    }
+
+    $existing = $state.Exists
+    if (-not $existing -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+        $entered = Read-ValueWithDefault -Prompt 'Install path' -Default $path
+        $path = Assert-SafeInstallPath -Path (Resolve-FullPath -Path $entered)
+        $state = Get-InstalledState -Path $path
+        $existing = $state.Exists
+        if ($existing) {
+            Write-Info "An existing installation was found at $path. Its service settings will be preserved."
+        }
+    }
+
+    $source = Get-SourceInfo -Path $SourcePath
+    if ($existing -and $Mode -eq 'upgrade' -and (Test-SamePath -First $source.Path -Second $path)) {
+        throw "The source folder is the installed folder. Extract the new release and run install.ps1 from there to upgrade."
+    }
+
+    Write-Info ''
+    Write-Info 'ShadowDPI installer'
+    if ($existing) {
+        Write-Info "Installed: $($state.VersionText)"
+    }
+    else {
+        Write-Info 'Installed: none'
+    }
+    Write-Info "Source:    $($source.VersionText)"
+
+    $serviceEnabled = $true
+    $serviceName = $script:DefaultServiceName
+    $serviceArgs = $script:DefaultServiceArgs
+    $startType = $script:DefaultStartType
+    $startAfter = $true
+    $oldServiceName = ''
+
+    if ($existing) {
+        $serviceEnabled = $state.ServiceEnabled
+        $serviceName = $state.ServiceName
+        $serviceArgs = $state.ServiceArgs
+        $startType = $state.StartType
+        if ($null -ne $state.Service) {
+            $serviceEnabled = $true
+            $oldServiceName = $state.Service.Name
+            $startAfter = ($state.Service.Status -eq 'Running')
+        }
+        elseif ($serviceEnabled) {
+            $startAfter = $true
+        }
+        else {
+            $startAfter = $false
+        }
+    }
+
+    if ($explicitServiceName) {
+        $serviceName = $explicitServiceName
+        $serviceEnabled = $true
+    }
+    if ($null -ne $explicitServiceArgs) {
+        $serviceArgs = $explicitServiceArgs
+    }
+    if ($NoService -and $null -eq $state.Service) {
+        $serviceEnabled = $false
+        $startAfter = $false
+    }
+    if ($NoStart) {
+        $startAfter = $false
+    }
+
+    if (-not $existing -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+        if (-not $NoService) {
+            $serviceEnabled = Read-YesNo -Prompt 'Install and start a Windows service?' -Default $serviceEnabled
+        }
+        else {
+            $serviceEnabled = $false
+        }
+
+        if ($serviceEnabled) {
+            if (-not $script:BoundParameters.ContainsKey('ServiceName')) {
+                $serviceName = Read-ValueWithDefault -Prompt 'Service name' -Default $serviceName
+            }
+            if (-not $script:BoundParameters.ContainsKey('ServiceArgs')) {
+                $serviceArgs = Read-ValueWithDefault -Prompt 'Service arguments' -Default $serviceArgs
+            }
+            if (Read-YesNo -Prompt 'Start the service automatically at boot?' -Default ($startType -eq 'auto')) {
+                $startType = 'auto'
+            }
+            else {
+                $startType = 'demand'
+            }
+            if (-not $NoStart) {
+                $startAfter = Read-YesNo -Prompt 'Start the service after install?' -Default $true
+            }
+        }
+        else {
+            $startAfter = $false
+        }
+    }
+
+    if ($serviceEnabled) {
+        Assert-ServiceName -Name $serviceName
+    }
+    if ($serviceArgs -match "`r|`n") {
+        throw 'Service arguments must be a single line.'
+    }
+
+    if ($oldServiceName -and $oldServiceName -ne $serviceName) {
+        Write-Warn "The service name is changing from $oldServiceName to $serviceName."
+    }
+
+    if ($oldServiceName) {
+        $oldWasRunning = Stop-ShadowService -Name $oldServiceName
+        if ($oldWasRunning -and -not $NoStart) {
+            $startAfter = $true
+        }
+    }
+
+    [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
+    Copy-InstallPayload -SourcePath $source.Path -DestinationPath $path -ScriptPath $script:ScriptPath
+
+    $serviceExe = Join-Path $path 'shadowdpi.exe'
+    if ($serviceEnabled) {
+        if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
+            Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+        }
+        else {
+            New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+        }
+
+        if ($startAfter) {
+            Start-ShadowService -Name $serviceName
+        }
+        else {
+            [void](Stop-ShadowService -Name $serviceName)
+        }
+    }
+
+    if ($oldServiceName -and $oldServiceName -ne $serviceName) {
+        Remove-ShadowService -Name $oldServiceName
+    }
+
+    $running = $false
+    if ($serviceEnabled) {
+        $service = Get-ServiceInfo -Name $serviceName
+        $running = ($null -ne $service -and $service.Status -eq 'Running')
+    }
+
+    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
+
+    Write-Info ''
+    Write-Info "ShadowDPI $($source.Version) is installed at $path."
+    if ($serviceEnabled) {
+        $service = Get-ServiceInfo -Name $serviceName
+        if ($null -ne $service) {
+            Write-Info "Service: $serviceName ($($service.Status))"
+        }
+        else {
+            Write-Info "Service: $serviceName (not registered)"
+        }
+    }
+    else {
+        Write-Info 'Service: not installed'
+    }
+
+    return 0
+}
+
+function Invoke-ReconfigureAction {
+    Assert-Administrator
+    Assert-X64Windows
+
+    $explicitServiceName = ''
+    if ($script:BoundParameters.ContainsKey('ServiceName') -and $ServiceName) {
+        $explicitServiceName = $ServiceName.Trim()
+    }
+    $explicitServiceArgs = $null
+    if ($script:BoundParameters.ContainsKey('ServiceArgs')) {
+        $explicitServiceArgs = $ServiceArgs.Trim()
+    }
+
+    $path = Get-InstallPath
+    $state = Get-InstalledState -Path $path
+    if (-not $state.Exists) {
+        throw "ShadowDPI is not installed at $path. Run the installer with -Action install first."
+    }
+
+    $oldServiceName = ''
+    $wasRunning = $false
+    if ($null -ne $state.Service) {
+        $oldServiceName = $state.Service.Name
+        $wasRunning = ($state.Service.Status -eq 'Running')
+    }
+
+    $serviceEnabled = $state.ServiceEnabled
+    if ($null -ne $state.Service) {
+        $serviceEnabled = $true
+    }
+    $serviceName = $state.ServiceName
+    $serviceArgs = $state.ServiceArgs
+    $startType = $state.StartType
+    $startAfter = $wasRunning
+
+    if ($explicitServiceName) {
+        $serviceName = $explicitServiceName
+        $serviceEnabled = $true
+    }
+    if ($null -ne $explicitServiceArgs) {
+        $serviceArgs = $explicitServiceArgs
+    }
+    if ($NoService) {
+        $serviceEnabled = $false
+        $startAfter = $false
+    }
+    if ($NoStart) {
+        $startAfter = $false
+    }
+
+    if (-not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+        Write-Info ''
+        Write-InstallStatus -State $state
+        Write-Info ''
+
+        $serviceEnabled = Read-YesNo -Prompt 'Run ShadowDPI as a Windows service?' -Default $serviceEnabled
+        if ($serviceEnabled) {
+            if (-not $script:BoundParameters.ContainsKey('ServiceName')) {
+                $serviceName = Read-ValueWithDefault -Prompt 'Service name' -Default $serviceName
+            }
+            if (-not $script:BoundParameters.ContainsKey('ServiceArgs')) {
+                $serviceArgs = Read-ValueWithDefault -Prompt 'Service arguments' -Default $serviceArgs
+            }
+            if (Read-YesNo -Prompt 'Start the service automatically at boot?' -Default ($startType -eq 'auto')) {
+                $startType = 'auto'
+            }
+            else {
+                $startType = 'demand'
+            }
+            if (-not $NoStart) {
+                $startAfter = Read-YesNo -Prompt 'Start the service now?' -Default $wasRunning
+            }
+        }
+        else {
+            $startAfter = $false
+            if ($oldServiceName -and -not (Read-YesNo -Prompt "Remove the existing service $oldServiceName?" -Default $true)) {
+                $serviceEnabled = $true
+            }
+        }
+    }
+
+    if ($serviceEnabled) {
+        Assert-ServiceName -Name $serviceName
+    }
+    if ($serviceArgs -match "`r|`n") {
+        throw 'Service arguments must be a single line.'
+    }
+
+    if ($oldServiceName) {
+        [void](Stop-ShadowService -Name $oldServiceName)
+    }
+
+    $serviceExe = Join-Path $path 'shadowdpi.exe'
+    if ($serviceEnabled) {
+        if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
+            Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+        }
+        else {
+            New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+        }
+
+        if ($startAfter) {
+            Start-ShadowService -Name $serviceName
+        }
+        else {
+            [void](Stop-ShadowService -Name $serviceName)
+        }
+    }
+    else {
+        if ($oldServiceName) {
+            Remove-ShadowService -Name $oldServiceName
+        }
+    }
+
+    if ($oldServiceName -and $oldServiceName -ne $serviceName) {
+        Remove-ShadowService -Name $oldServiceName
+    }
+
+    $running = $false
+    if ($serviceEnabled) {
+        $service = Get-ServiceInfo -Name $serviceName
+        $running = ($null -ne $service -and $service.Status -eq 'Running')
+    }
+
+    $versionText = $state.VersionText
+    if (-not $versionText -and (Test-Path -LiteralPath $serviceExe -PathType Leaf)) {
+        $versionText = Get-ExeVersion -ExePath $serviceExe
+    }
+
+    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $versionText -SourcePath $path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
+
+    Write-Info ''
+    Write-Info 'ShadowDPI configuration updated.'
+    if ($serviceEnabled) {
+        $service = Get-ServiceInfo -Name $serviceName
+        if ($null -ne $service) {
+            Write-Info "Service: $serviceName ($($service.Status))"
+        }
+        else {
+            Write-Info "Service: $serviceName (not registered)"
+        }
+    }
+    else {
+        Write-Info 'Service: not installed'
+    }
+    return 0
+}
+
+function Invoke-UninstallAction {
+    Assert-Administrator
+
+    $path = Get-InstallPath
+    $state = Get-InstalledState -Path $path
+    $serviceName = $state.ServiceName
+    if ($null -ne $state.Service) {
+        $serviceName = $state.Service.Name
+    }
+
+    if (-not $state.Exists -and $null -eq $state.Service) {
+        Write-Info "ShadowDPI is not installed at $path."
+        return 0
+    }
+
+    if (-not $Force) {
+        if (-not (Test-InteractiveHost)) {
+            throw 'Uninstall from a non-interactive session requires -Force.'
+        }
+        if (-not (Read-YesNo -Prompt "Remove ShadowDPI from $path and delete service $serviceName?" -Default $false)) {
+            Write-Info 'Cancelled.'
+            return 0
+        }
+    }
+
+    if ($null -ne $state.Service) {
+        Remove-ShadowService -Name $serviceName
+    }
+
+    if (Test-Path -LiteralPath $path -PathType Container) {
+        $safePath = Assert-SafeInstallPath -Path $path
+        $current = (Get-Location).ProviderPath
+        if ((Test-SamePath -First $current -Second $safePath)) {
+            Set-Location -LiteralPath (Split-Path -Parent $safePath)
+        }
+
+        Write-Info "Removing $safePath..."
+        Remove-Item -LiteralPath $safePath -Recurse -Force
+    }
+
+    Write-Info 'ShadowDPI was removed.'
+    return 0
+}
+
+function Invoke-InteractiveMenu {
+    if (-not (Test-InteractiveHost)) {
+        throw 'The interactive menu requires a console. Use -Action install, upgrade, reconfigure, uninstall, or scan.'
+    }
+
+    while ($true) {
+        $path = Get-InstallPath
+        $state = Get-InstalledState -Path $path
+
+        Write-Info ''
+        Write-Info 'ShadowDPI installer'
+        Write-Info '=================='
+        Write-InstallStatus -State $state
+        if (-not (Test-IsAdministrator)) {
+            Write-Warn 'This session is not elevated. Install, service, and scan actions need Administrator rights.'
+        }
+        Write-Info ''
+
+        if ($state.Exists) {
+            Write-Info '  1. Reinstall'
+            Write-Info '  2. Upgrade from this folder'
+            Write-Info '  3. Reconfigure'
+            Write-Info '  4. Uninstall'
+            Write-Info '  5. Scan for a working strategy'
+            Write-Info '  6. Exit'
+        }
+        else {
+            Write-Info '  1. Install'
+            Write-Info '  2. Scan for a working strategy'
+            Write-Info '  3. Exit'
+        }
+
+        $choice = [string](Read-Host 'Choice')
+        $choice = $choice.Trim()
+
+        $exit = $false
+        try {
+            if ($state.Exists) {
+                switch ($choice) {
+                    '1' {
+                        [void](Invoke-InstallAction -Mode install -AssumeYes)
+                    }
+                    '2' {
+                        [void](Invoke-InstallAction -Mode upgrade -AssumeYes)
+                    }
+                    '3' {
+                        [void](Invoke-ReconfigureAction)
+                    }
+                    '4' {
+                        [void](Invoke-UninstallAction)
+                    }
+                    '5' {
+                        [void](Invoke-MenuScan)
+                    }
+                    '6' {
+                        $exit = $true
+                    }
+                    default {
+                        Write-Warn 'Enter 1, 2, 3, 4, 5, or 6.'
+                    }
+                }
+            }
+            else {
+                switch ($choice) {
+                    '1' {
+                        [void](Invoke-InstallAction -Mode install -AssumeYes)
+                    }
+                    '2' {
+                        [void](Invoke-MenuScan)
+                    }
+                    '3' {
+                        $exit = $true
+                    }
+                    default {
+                        Write-Warn 'Enter 1, 2, or 3.'
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+        }
+
+        if ($exit) {
+            return 0
+        }
+
+        [void](Read-Host 'Press Enter to continue')
+    }
+}
+
+$exitCode = 0
+try {
+    switch ($Action) {
+        'menu' {
+            $exitCode = Invoke-InteractiveMenu
+        }
+        'install' {
+            $exitCode = Invoke-InstallAction -Mode install
+        }
+        'upgrade' {
+            $exitCode = Invoke-InstallAction -Mode upgrade
+        }
+        'reconfigure' {
+            $exitCode = Invoke-ReconfigureAction
+        }
+        'uninstall' {
+            $exitCode = Invoke-UninstallAction
+        }
+        'scan' {
+            $exitCode = Invoke-Scan
+        }
+    }
+}
+catch {
+    Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+    $exitCode = 1
 }
 
 exit $exitCode

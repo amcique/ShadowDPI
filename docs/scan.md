@@ -1,15 +1,17 @@
 # Strategy scanner
 
-`tools/blockcheck.ps1` tests many ShadowDPI option combinations against a list
-of URLs and reports which ones restore access. It is a Windows equivalent of
-the blockcheck idea from [zapret](https://github.com/bol-van/zapret): compare a
-baseline with each candidate, probe every URL, and keep the strategies that
-work. The implementation is independent PowerShell code and contains no zapret
-code.
+`install.ps1 -Action scan` tests many ShadowDPI option combinations against a
+list of URLs and reports which ones restore access. It is a Windows equivalent
+of the blockcheck idea from [zapret](https://github.com/bol-van/zapret):
+compare a baseline with each candidate, probe every URL, and keep the
+strategies that work. The implementation is independent PowerShell code and
+contains no zapret code.
 
-The scanner never changes the system DNS settings and never installs a service.
-It starts one `shadowdpi.exe` process per candidate, waits for the filters to
-open, probes the URL list, and stops the process again.
+The scanner never changes the system DNS settings. It starts one
+`shadowdpi.exe` process per candidate, waits for the filters to open, probes the
+URL list, and stops the process again. If an installed ShadowDPI service is
+running, the scanner stops it before the baseline and starts it again when the
+scan ends.
 
 ## Requirements
 
@@ -17,32 +19,36 @@ open, probes the URL list, and stops the process again.
 - Administrator rights, because WinDivert needs to load its driver.
 - Windows PowerShell 5.1 or PowerShell 7.
 - `curl.exe`, which ships with Windows 10 version 1803 and later.
-- `shadowdpi.exe`, `WinDivert.dll`, and `WinDivert64.sys` in the same folder.
+- `shadowdpi.exe`, `WinDivert.dll`, and `WinDivert64.sys` next to the script,
+  in the installed folder, or in the usual build output folders.
 
-The script stops with an error if the `ShadowDPI` service is running or another
-`shadowdpi.exe` process is present. Both would filter traffic while the baseline
-is measured.
+A console `shadowdpi.exe` process must not be running while the baseline is
+measured. The scanner stops an installed service itself and restarts it
+afterward.
 
 ## Quick start
 
-From the folder that contains the release or the build output:
+From the extracted release folder or from the installed folder:
 
 ```powershell
-.\tools\blockcheck.ps1 -ScanLevel quick
+.\install.ps1 -Action scan -ScanLevel quick
 ```
 
-The default URL list is `tools\blockcheck-urls.txt`. Edit it before scanning, or
-pass URLs directly:
+The default URL list is `tools\scan-urls.txt`. Edit it before scanning, or pass
+URLs directly:
 
 ```powershell
-.\tools\blockcheck.ps1 -Urls https://example.com/,https://example.org/
+.\install.ps1 -Action scan -Urls https://example.com/,https://example.org/
 ```
 
 A bare host is treated as `https://host/`:
 
 ```powershell
-.\tools\blockcheck.ps1 -Urls wikipedia.org,x.com -ScanLevel standard
+.\install.ps1 -Action scan -Urls wikipedia.org,x.com -ScanLevel standard
 ```
+
+Running `install.ps1` without arguments opens the menu, where scanning is one
+of the choices.
 
 Unless you pass `-DnsAddr`, `-DnsV6Addr`, or `-DnsResolver`, the script asks
 which DNS resolver to use:
@@ -60,7 +66,7 @@ When a resolver is selected, every candidate also receives `--dns-addr` and
 `--dns-port`, and an extra `DNS redirect only` candidate is added:
 
 ```powershell
-.\tools\blockcheck.ps1 -UrlFile .\blocked.txt `
+.\install.ps1 -Action scan -UrlFile .\blocked.txt `
     -DnsResolver cloudflare -ScanLevel full -Json result.json
 ```
 
@@ -68,7 +74,7 @@ Use `-DnsResolver system` to skip the question and keep the Windows resolver,
 or pass an explicit address when you need a custom port:
 
 ```powershell
-.\tools\blockcheck.ps1 -UrlFile .\blocked.txt `
+.\install.ps1 -Action scan -UrlFile .\blocked.txt `
     -DnsAddr 77.88.8.8 -DnsPort 1253 -ScanLevel full
 ```
 
@@ -78,7 +84,8 @@ The question is skipped when input or output is redirected, and during
 ## How a scan works
 
 1. Preflight checks the executable, the WinDivert files, curl, Administrator
-   rights, and any running ShadowDPI instance. It also starts
+   rights, and any running ShadowDPI process. It stops a running installed
+   service and records it for restart, then starts
    `shadowdpi.exe --debug-exit --ready-file` once to confirm that the build
    supports the readiness signal.
 2. The baseline probes every URL with ShadowDPI stopped. Probes use
@@ -89,7 +96,8 @@ The question is skipped when input or output is redirected, and during
    for the file instead of sleeping for a fixed time, then probes every URL.
 5. The process is stopped, the next candidate starts, and the results are
    ranked. The first fully passing strategy is printed as the recommended
-   command line.
+   command line. If the scanner stopped an installed service, it starts that
+   service again when the scan ends.
 
 The scanner removes its temporary folder with the ready files and process logs
 at the end. Use `-KeepArtifacts` to keep it for inspection.
@@ -113,7 +121,8 @@ want a shorter run.
 | --- | --- |
 | `-Urls <string[]>` | URLs to test. Overrides the URL file. |
 | `-UrlFile <path>` | File with one URL per line. Blank lines, `#`, and `;` are ignored. |
-| `-Exe <path>` | Path to `shadowdpi.exe`. By default the script checks next to `tools`, then the release and build folders. |
+| `-Exe <path>` | Path to `shadowdpi.exe`. By default the script prefers the installed copy, then the copy next to the script, then the build output folders. |
+| `-InstallPath <path>` | Installed folder used to find the executable and the running service. Defaults to the folder recorded in `install.json`. |
 | `-ScanLevel quick\|standard\|full` | Candidate matrix size. Defaults to `standard`. |
 | `-Protocols auto\|tls12\|tls13\|all` | HTTPS probe mode. `auto` uses curl's normal negotiation. `all` probes TLS 1.2 and TLS 1.3 separately. |
 | `-IpVersion 4\|6\|auto` | Address family passed to curl. Defaults to `4`. |
