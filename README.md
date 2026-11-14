@@ -131,13 +131,6 @@ Administrator rights and `curl.exe`, and it checks for a conflicting ShadowDPI
 instance before it starts. Scan levels, result verdicts, JSON fields, and exit
 codes are documented in [docs/blockcheck.md](docs/blockcheck.md).
 
-### Turkish presets
-
-Six ready-made recipes for Turkish providers are in
-[presets/turkiye](presets/turkiye/README.md), grouped by provider. They wrap the
-flags above and keep the DNS endpoints in one editable file, with both console
-launchers and a service installer.
-
 The full option reference, alias table, blacklist format, and validation rules
 are in [docs/cli.md](docs/cli.md).
 
