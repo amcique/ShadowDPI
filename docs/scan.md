@@ -154,8 +154,10 @@ Each candidate gets one of these verdicts:
 | `error` | ShadowDPI did not start, or it exited during the probes. The stderr text is shown. |
 
 A probe is counted as reachable when curl exits with status 0, the HTTP status
-is not 400, and any redirect stays on the same host or a subdomain. HTTP 400 is
-reported separately because it often means the server received fake packets.
+is not 400, 403, 451, or 5xx, and any redirect stays on the same host or a
+subdomain. HTTP 400 is reported separately because it often means the server
+received fake packets. HTTP 403, 451, and 5xx are reported as possible block
+pages or server errors.
 Redirects to another host are reported as suspicious, the same idea used by
 zapret's blockcheck.
 

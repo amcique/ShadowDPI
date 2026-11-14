@@ -246,9 +246,11 @@ Control Manager and shuts down cleanly on a stop request. If you manage the
 service by hand, the equivalent commands are:
 
 ```powershell
-sc create ShadowDPI binPath= "C:\Tools\ShadowDPI\shadowdpi.exe -9" start= auto
-sc description ShadowDPI "Deep Packet Inspection circumvention utility"
-sc start ShadowDPI
+New-Service -Name ShadowDPI `
+  -BinaryPathName '"C:\Tools\ShadowDPI\shadowdpi.exe" -9' `
+  -DisplayName ShadowDPI -StartupType Automatic
+sc.exe description ShadowDPI "Deep Packet Inspection circumvention utility"
+Start-Service ShadowDPI
 ```
 
 Remove the install, including the service, with:

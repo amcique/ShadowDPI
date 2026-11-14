@@ -31,8 +31,9 @@ uninstall removes the service and the install folder, and scan runs the
 strategy scanner. Defaults to menu.
 
 .PARAMETER InstallPath
-Install folder. Defaults to %ProgramFiles%\ShadowDPI, or to the folder recorded
-in install.json when one exists.
+Install folder. Defaults to %ProgramFiles%\ShadowDPI. A registered service can
+also identify the folder. Pass this parameter to later actions on a custom
+install.
 
 .PARAMETER ServiceName
 Windows service name. Defaults to ShadowDPI for a new install. Reinstall and
@@ -209,6 +210,7 @@ $script:DefaultServiceArgs = '-9'
 $script:DefaultStartType = 'auto'
 $script:InstallMetadataName = 'install.json'
 $script:ScriptPath = $PSCommandPath
+$script:VersionCache = @{}
 
 function Write-Info {
     param([string]$Message)
@@ -217,7 +219,7 @@ function Write-Info {
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host ('warning: ' + $Message) -ForegroundColor Yellow
+    Write-Warning $Message
 }
 
 function Read-ValueWithDefault {
@@ -306,14 +308,6 @@ function Read-CustomDns {
         }
 
         $isV6 = $parsed.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6
-        if (-not $isV6 -and $address -notmatch '\.') {
-            Write-Warn "Enter a dotted IPv4 address or an IPv6 address: $address"
-            continue
-        }
-        if ($isV6 -and $address -notmatch ':') {
-            Write-Warn "Enter a dotted IPv4 address or an IPv6 address: $address"
-            continue
-        }
 
         $portDefault = $DefaultPort
         if ($isV6) {
@@ -409,6 +403,22 @@ function Resolve-ExePath {
     throw 'shadowdpi.exe was not found. Pass -Exe or run the script from an extracted release folder.'
 }
 
+function ConvertFrom-NativeOutput {
+    param([object[]]$Items)
+
+    $lines = @()
+    foreach ($item in $Items) {
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $lines += [string]$item.Exception.Message
+        }
+        else {
+            $lines += [string]$item
+        }
+    }
+
+    return (($lines | Out-String).TrimEnd())
+}
+
 function Invoke-NativeText {
     param(
         [string]$FilePath,
@@ -416,12 +426,13 @@ function Invoke-NativeText {
     )
 
     # Windows PowerShell 5.1 wraps native stderr in an ErrorRecord, which would
-    # become terminating under ErrorActionPreference=Stop. Keep stderr in the
-    # returned text instead.
+    # become terminating under ErrorActionPreference=Stop. Unwrap the records
+    # so the caller receives plain text.
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        return (& $FilePath @Arguments 2>&1 | Out-String)
+        $items = @(& $FilePath @Arguments 2>&1)
+        return (ConvertFrom-NativeOutput -Items $items)
     }
     finally {
         $ErrorActionPreference = $previous
@@ -437,10 +448,11 @@ function Invoke-NativeResult {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $output = (& $FilePath @Arguments 2>&1 | Out-String)
+        $items = @(& $FilePath @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
         return [pscustomobject]@{
-            Output   = $output.Trim()
-            ExitCode = $LASTEXITCODE
+            Output   = (ConvertFrom-NativeOutput -Items $items)
+            ExitCode = $exitCode
         }
     }
     finally {
@@ -470,10 +482,7 @@ function Invoke-ScCommandLine {
 }
 
 function Resolve-FullPath {
-    param(
-        [string]$Path,
-        [string]$BasePath = ''
-    )
+    param([string]$Path)
 
     $text = ([string]$Path).Trim()
     if (-not $text) {
@@ -493,10 +502,7 @@ function Resolve-FullPath {
     }
 
     if (-not [IO.Path]::IsPathRooted($text)) {
-        if (-not $BasePath) {
-            $BasePath = (Get-Location).ProviderPath
-        }
-        $text = Join-Path $BasePath $text
+        $text = Join-Path (Get-Location).ProviderPath $text
     }
 
     $full = [IO.Path]::GetFullPath($text)
@@ -504,6 +510,73 @@ function Resolve-FullPath {
         $full = $full.TrimEnd([char[]]@('\', '/'))
     }
     return $full
+}
+
+function Get-CanonicalPath {
+    param([string]$Path)
+
+    $full = Resolve-FullPath -Path $Path
+    $root = [IO.Path]::GetPathRoot($full)
+    if (-not $root) {
+        return $full
+    }
+
+    $current = $root
+    $relative = $full.Substring($root.Length)
+    $parts = @($relative -split '[\\/]' | Where-Object { $_ })
+    $depth = 0
+
+    foreach ($part in $parts) {
+        $depth++
+        if ($depth -gt 64) {
+            break
+        }
+
+        $next = Join-Path $current $part
+        $item = $null
+        try {
+            $item = Get-Item -LiteralPath $next -Force -ErrorAction Stop
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                $target = $item.Target
+                if ($target -is [array]) {
+                    $target = $target[0]
+                }
+                if ($target) {
+                    if (-not [IO.Path]::IsPathRooted($target)) {
+                        $target = Join-Path $current $target
+                    }
+                    $current = Resolve-FullPath -Path $target
+                    continue
+                }
+            }
+        }
+        catch {
+        }
+
+        if ($item) {
+            $current = $item.FullName
+        }
+        else {
+            $current = $next
+        }
+    }
+
+    return (Resolve-FullPath -Path $current)
+}
+
+function Test-PathWithin {
+    param(
+        [string]$Path,
+        [string]$Root
+    )
+
+    $value = $Path.TrimEnd([char[]]@('\', '/'))
+    $base = $Root.TrimEnd([char[]]@('\', '/'))
+    if ($value.Equals($base, [StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+
+    return $value.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-DefaultInstallPath {
@@ -558,24 +631,56 @@ function Assert-ServiceName {
 function Assert-SafeInstallPath {
     param([string]$Path)
 
-    $full = Resolve-FullPath -Path $Path
-    if ($full -match '^[A-Za-z]:$') {
-        throw "Refusing to use a drive root as the install path: $full"
+    $full = Get-CanonicalPath -Path $Path
+    $trimmed = $full.TrimEnd([char[]]@('\', '/'))
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($root) {
+        $rootTrimmed = $root.TrimEnd([char[]]@('\', '/'))
+        if ($trimmed.Equals($rootTrimmed, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to use a drive or share root as the install path: $full"
+        }
     }
 
-    $protected = @(
+    $protectedTrees = @(
         $env:SystemRoot,
-        $env:ProgramFiles,
-        $env:ProgramW6432,
-        [Environment]::GetFolderPath('UserProfile')
+        $env:ProgramData,
+        (Join-Path $env:SystemDrive 'Users')
     )
-    foreach ($candidate in $protected) {
+    foreach ($candidate in $protectedTrees) {
         if (-not $candidate) {
             continue
         }
-        $resolved = Resolve-FullPath -Path $candidate
-        if ($full.Equals($resolved, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to use a protected folder as the install path: $full"
+        $resolved = Get-CanonicalPath -Path $candidate
+        if (Test-PathWithin -Path $full -Root $resolved) {
+            throw "Refusing to use a protected system folder as the install path: $full"
+        }
+    }
+
+    $exactRoots = @(
+        $env:ProgramFiles,
+        $env:ProgramW6432,
+        ${env:ProgramFiles(x86)}
+    )
+    foreach ($candidate in $exactRoots) {
+        if (-not $candidate) {
+            continue
+        }
+        $resolved = Get-CanonicalPath -Path $candidate
+        if ($trimmed.Equals($resolved.TrimEnd([char[]]@('\', '/')), [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to use a protected system folder as the install path: $full"
+        }
+    }
+
+    $programRoots = @($env:ProgramFiles, $env:ProgramW6432, ${env:ProgramFiles(x86)})
+    foreach ($programRoot in $programRoots) {
+        if (-not $programRoot) {
+            continue
+        }
+        foreach ($name in 'Common Files', 'WindowsApps') {
+            $resolved = Get-CanonicalPath -Path (Join-Path $programRoot $name)
+            if (Test-PathWithin -Path $full -Root $resolved) {
+                throw "Refusing to use a protected system folder as the install path: $full"
+            }
         }
     }
 
@@ -619,6 +724,13 @@ function Get-ServiceInfo {
         return $null
     }
 
+    try {
+        Assert-ServiceName -Name $Name
+    }
+    catch {
+        return $null
+    }
+
     $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($null -eq $service) {
         return $null
@@ -638,11 +750,10 @@ function Get-ServiceInfo {
     }
 
     return [pscustomobject]@{
-        Name        = [string]$service.Name
-        Status      = [string]$service.Status
-        StartMode   = $startMode
-        PathName    = $pathName
-        DisplayName = [string]$service.DisplayName
+        Name      = [string]$service.Name
+        Status    = [string]$service.Status
+        StartMode = $startMode
+        PathName  = $pathName
     }
 }
 
@@ -702,7 +813,7 @@ function Stop-ShadowService {
 
     Write-Info "Stopping service $Name..."
     $result = Invoke-NativeResult -FilePath (Join-Path $env:SystemRoot 'System32\sc.exe') -Arguments @('stop', $Name)
-    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1060|1062|1056') {
+    if ($result.ExitCode -ne 0 -and $result.ExitCode -notin 1056, 1060, 1062) {
         throw "Could not stop service $Name. $($result.Output)"
     }
 
@@ -727,7 +838,7 @@ function Start-ShadowService {
 
     Write-Info "Starting service $Name..."
     $result = Invoke-NativeResult -FilePath (Join-Path $env:SystemRoot 'System32\sc.exe') -Arguments @('start', $Name)
-    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1056') {
+    if ($result.ExitCode -ne 0 -and $result.ExitCode -ne 1056) {
         throw "Could not start service $Name. $($result.Output)"
     }
 
@@ -744,9 +855,15 @@ function Start-ShadowService {
 function ConvertTo-ScStartMode {
     param([string]$StartType)
 
-    switch ($StartType) {
+    if (-not $StartType) {
+        throw 'A service start type is required.'
+    }
+
+    switch ($StartType.ToLowerInvariant()) {
         'auto' { return 'auto' }
+        'automatic' { return 'auto' }
         'demand' { return 'demand' }
+        'manual' { return 'demand' }
         'disabled' { return 'disabled' }
     }
 
@@ -776,8 +893,9 @@ function New-ShadowService {
 
     Assert-ServiceName -Name $Name
     $binaryPath = Get-ServiceBinaryPath -ExePath $ExePath -Arguments $Arguments
+    $startMode = ConvertTo-ScStartMode -StartType $StartType
     $startup = 'Automatic'
-    switch ($StartType) {
+    switch ($startMode) {
         'auto' {
             $startup = 'Automatic'
         }
@@ -841,12 +959,48 @@ function Remove-ShadowService {
     $sc = Join-Path $env:SystemRoot 'System32\sc.exe'
     Write-Info "Deleting service $Name..."
     $result = Invoke-NativeResult -FilePath $sc -Arguments @('delete', $Name)
-    if ($result.ExitCode -ne 0 -and $result.Output -notmatch '1060|1072') {
+    if ($result.ExitCode -ne 0 -and $result.ExitCode -notin 1060, 1072) {
         throw "Could not delete service $Name. $($result.Output)"
     }
 
     if (-not (Wait-ServiceStatus -Name $Name -Status 'Deleted' -TimeoutSec 30)) {
         throw "Service $Name is still registered after a delete request."
+    }
+}
+
+function Restore-ShadowService {
+    param(
+        [string]$Name,
+        [string]$ExePath,
+        [string]$Arguments,
+        [string]$StartType,
+        [bool]$WasRunning
+    )
+
+    if (-not $Name) {
+        return
+    }
+
+    try {
+        $service = Get-ServiceInfo -Name $Name
+        if ($null -eq $service) {
+            if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
+                Write-Warn "The service $Name could not be restored because $ExePath is missing."
+                return
+            }
+            New-ShadowService -Name $Name -ExePath $ExePath -Arguments $Arguments -StartType $StartType
+        }
+        else {
+            Set-ShadowService -Name $Name -ExePath $ExePath -Arguments $Arguments -StartType $StartType
+        }
+
+        if ($WasRunning) {
+            Start-ShadowService -Name $Name
+        }
+        Write-Info "Service $Name was restored after the failed action."
+    }
+    catch {
+        Write-Warn "The service $Name could not be restored: $($_.Exception.Message)"
     }
 }
 
@@ -859,7 +1013,7 @@ function Read-InstallMetadata {
     }
 
     try {
-        return (Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json)
+        return (Get-Content -LiteralPath $file -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json)
     }
     catch {
         Write-Warn "Could not read $file. The installer will use defaults."
@@ -922,7 +1076,10 @@ function Get-InstalledState {
     $exists = $exeExists -or ($null -ne $metadata)
 
     $versionText = ''
-    if ($exeExists) {
+    if ($null -ne $metadata -and $metadata.versionText) {
+        $versionText = [string]$metadata.versionText
+    }
+    elseif ($exeExists) {
         $versionText = Get-ExeVersion -ExePath $exePath
     }
 
@@ -975,7 +1132,7 @@ function Get-InstallPath {
     $defaultPath = Get-DefaultInstallPath
     $metadata = Read-InstallMetadata -Path $defaultPath
     if ($null -ne $metadata -and $metadata.installPath) {
-        return (Resolve-FullPath -Path ([string]$metadata.installPath))
+        return (Assert-SafeInstallPath -Path ([string]$metadata.installPath))
     }
 
     if ($null -eq $metadata -and -not (Test-Path -LiteralPath (Join-Path $defaultPath 'shadowdpi.exe') -PathType Leaf)) {
@@ -993,8 +1150,17 @@ function Get-InstallPath {
                 continue
             }
             $launch = Get-ServiceLaunch -PathName $service.PathName
-            if ($launch.ExePath) {
-                return (Split-Path -Parent $launch.ExePath)
+            if (-not $launch.ExePath) {
+                continue
+            }
+            if ((Split-Path -Leaf $launch.ExePath) -ne 'shadowdpi.exe') {
+                continue
+            }
+            try {
+                return (Assert-SafeInstallPath -Path (Split-Path -Parent $launch.ExePath))
+            }
+            catch {
+                Write-Warn "Ignoring service $name because its path is not safe: $($_.Exception.Message)"
             }
         }
     }
@@ -1040,8 +1206,8 @@ function Test-SamePath {
         [string]$Second
     )
 
-    $a = Resolve-FullPath -Path $First
-    $b = Resolve-FullPath -Path $Second
+    $a = Get-CanonicalPath -Path $First
+    $b = Get-CanonicalPath -Path $Second
     return $a.Equals($b, [StringComparison]::OrdinalIgnoreCase)
 }
 
@@ -1053,6 +1219,12 @@ function Copy-InstallPayload {
     )
 
     Write-Info "Installing files from $SourcePath"
+    $canonicalSource = Get-CanonicalPath -Path $SourcePath
+    $canonicalDestination = Get-CanonicalPath -Path $DestinationPath
+    if ($canonicalDestination.StartsWith($canonicalSource + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The install folder must not be inside the release folder: $DestinationPath"
+    }
+
     if (-not (Test-Path -LiteralPath $DestinationPath -PathType Container)) {
         New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
     }
@@ -1083,7 +1255,15 @@ function Copy-InstallPayload {
             continue
         }
 
-        Copy-Item -LiteralPath $source -Destination $destination -Force
+        try {
+            Copy-Item -LiteralPath $source -Destination $destination -Force -ErrorAction Stop
+        }
+        catch {
+            if ($_.Exception.Message -match '(?i)itself|same file') {
+                continue
+            }
+            throw
+        }
     }
 
     foreach ($name in 'docs', 'tools', 'resources') {
@@ -1096,6 +1276,9 @@ function Copy-InstallPayload {
         if ((Test-SamePath -First $sourceDir -Second $destinationDir)) {
             continue
         }
+        if ((Test-PathWithin -Path (Get-CanonicalPath -Path $destinationDir) -Root (Get-CanonicalPath -Path $sourceDir))) {
+            continue
+        }
 
         if (-not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
             New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
@@ -1103,7 +1286,14 @@ function Copy-InstallPayload {
 
         $items = @(Get-ChildItem -LiteralPath $sourceDir -Force)
         if ($items.Count -gt 0) {
-            Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destinationDir -Recurse -Force
+            try {
+                Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destinationDir -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                if ($_.Exception.Message -notmatch '(?i)itself|same file') {
+                    throw
+                }
+            }
         }
     }
 
@@ -1128,7 +1318,7 @@ function Write-InstallMetadata {
         [bool]$Running
     )
 
-    $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $installedUtc = $now
     if ($null -ne $Metadata -and $Metadata.installedUtc) {
         $installedUtc = [string]$Metadata.installedUtc
@@ -1154,7 +1344,16 @@ function Write-InstallMetadata {
 
     $json = $data | ConvertTo-Json -Depth 5
     $file = Join-Path $Path $script:InstallMetadataName
-    [IO.File]::WriteAllText($file, $json, (New-Object System.Text.UTF8Encoding($false)))
+    $temp = $file + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temp, $json, (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temp -Destination $file -Force -ErrorAction Stop
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp -PathType Leaf) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Read-UrlList {
@@ -1174,7 +1373,7 @@ function Read-UrlList {
         if (-not (Test-Path -LiteralPath $File -PathType Leaf)) {
             throw "URL list was not found at $File"
         }
-        $lines = @(Get-Content -LiteralPath $File -ErrorAction Stop)
+        $lines = @(Get-Content -LiteralPath $File -Encoding UTF8 -ErrorAction Stop)
     }
 
     $result = New-Object System.Collections.Generic.List[string]
@@ -1216,6 +1415,9 @@ function Read-UrlList {
     }
 
     if ($result.Count -eq 0) {
+        if ($InlineUrls) {
+            throw 'no URLs to test'
+        }
         throw "no URLs to test in $File"
     }
 
@@ -1446,19 +1648,36 @@ function Assert-Dependencies {
 function Get-ExeVersion {
     param([string]$ExePath)
 
-    try {
-        $text = Invoke-NativeText -FilePath $ExePath -Arguments @('--version')
-        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
-        $line = $lines | Where-Object { $_ -match 'ShadowDPI' } | Select-Object -Last 1
-        if ($line) {
-            return ([string]$line).Trim()
-        }
-    }
-    catch {
-        return 'unknown'
+    if ($script:VersionCache.ContainsKey($ExePath)) {
+        return $script:VersionCache[$ExePath]
     }
 
-    return 'unknown'
+    $versionText = 'unknown'
+    if (Test-IsAdministrator) {
+        try {
+            $text = Invoke-NativeText -FilePath $ExePath -Arguments @('--version')
+            $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+            $line = $lines | Where-Object { $_ -match 'ShadowDPI' } | Select-Object -Last 1
+            if ($line) {
+                $versionText = ([string]$line).Trim()
+            }
+        }
+        catch {
+        }
+    }
+    else {
+        try {
+            $product = [string](Get-Item -LiteralPath $ExePath -ErrorAction Stop).VersionInfo.ProductVersion
+            if ($product) {
+                $versionText = 'ShadowDPI ' + $product
+            }
+        }
+        catch {
+        }
+    }
+
+    $script:VersionCache[$ExePath] = $versionText
+    return $versionText
 }
 
 function Test-DnsEndpoint {
@@ -1468,8 +1687,27 @@ function Test-DnsEndpoint {
     )
 
     try {
-        $output = Invoke-NativeText -FilePath 'nslookup' -Arguments @('-type=A', "-port=$Port", '-timeout=2', 'example.com', $Address)
-        if ($output -notmatch '(?m)^Name:') {
+        $parsed = $null
+        $isV6 = $false
+        if (-not [System.Net.IPAddress]::TryParse($Address, [ref]$parsed)) {
+            throw 'not an IP address'
+        }
+        $isV6 = $parsed.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6
+        $recordType = 'A'
+        if ($isV6) {
+            $recordType = 'AAAA'
+        }
+
+        if ($Port -eq 53 -and $null -ne (Get-Command Resolve-DnsName -ErrorAction SilentlyContinue)) {
+            $records = @(Resolve-DnsName -Name example.com -Type $recordType -Server $Address -DnsOnly -ErrorAction Stop)
+            if (@($records | Where-Object { $_.IPAddress }).Count -eq 0) {
+                Write-Warn "DNS endpoint $Address`:$Port did not return an address for example.com"
+            }
+            return
+        }
+
+        $output = Invoke-NativeText -FilePath 'nslookup' -Arguments @("-type=$recordType", "-port=$Port", '-timeout=2', 'example.com', $Address)
+        if ($output -match '(?i)(NXDOMAIN|SERVFAIL|REFUSED|timed out|request timed out)') {
             Write-Warn "DNS endpoint $Address`:$Port did not return an answer for example.com"
         }
     }
@@ -1481,20 +1719,44 @@ function Test-DnsEndpoint {
 function Quote-Argument {
     param([string]$Value)
 
-    if ($Value -match '[\s"]') {
-        return '"' + ($Value -replace '(\\*)"', '$1$1\"') + '"'
+    if ($Value -notmatch '[\s"]') {
+        return $Value
     }
-    return $Value
+
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($character -eq '"') {
+            [void]$builder.Append([string]::new([char]'\', (2 * $backslashes + 1)))
+            [void]$builder.Append('"')
+            $backslashes = 0
+            continue
+        }
+
+        if ($backslashes -gt 0) {
+            [void]$builder.Append([string]::new([char]'\', $backslashes))
+            $backslashes = 0
+        }
+        [void]$builder.Append($character)
+    }
+
+    if ($backslashes -gt 0) {
+        [void]$builder.Append([string]::new([char]'\', (2 * $backslashes)))
+    }
+    [void]$builder.Append('"')
+    return $builder.ToString()
 }
 
 function Get-CurlFailureReason {
     param([int]$Code)
 
     switch ($Code) {
-        1 { return 'unsupported protocol' }
-        2 { return 'curl option or initialization failure' }
         3 { return 'malformed URL' }
-        4 { return 'feature not supported by this curl build' }
         5 { return 'could not resolve proxy' }
         6 { return 'could not resolve host' }
         7 { return 'could not connect' }
@@ -1540,7 +1802,7 @@ function Test-RedirectAllowed {
     $locationHost = $locationUri.Host.ToLowerInvariant()
     $originalHost = $originalUri.Host.ToLowerInvariant()
 
-    return ($locationHost -eq $originalHost -or $locationHost.EndsWith('.' + $originalHost))
+    return ($locationHost -eq $originalHost -or $locationHost.EndsWith('.' + $originalHost, [StringComparison]::OrdinalIgnoreCase))
 }
 
 function Invoke-CurlProbe {
@@ -1600,7 +1862,10 @@ function Invoke-CurlProbe {
             Remove-Item -LiteralPath $stdoutFile -Force -ErrorAction SilentlyContinue
         }
         if (Test-Path -LiteralPath $errorFile) {
-            $stderrText = [string](Get-Content -LiteralPath $errorFile -Raw -ErrorAction SilentlyContinue)
+            $errorText = [string](Get-Content -LiteralPath $errorFile -Raw -ErrorAction SilentlyContinue)
+            if ($errorText.Trim()) {
+                $stderrText = $errorText
+            }
             Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1640,6 +1905,10 @@ function Invoke-CurlProbe {
     elseif ($httpCode -eq 400) {
         $status = 'http400'
         $detail = 'HTTP 400, the server may have received fake packets'
+    }
+    elseif ($httpCode -eq 403 -or $httpCode -eq 451 -or ($httpCode -ge 500 -and $httpCode -le 599)) {
+        $status = 'blocked'
+        $detail = "HTTP $httpCode, possible block page or server error"
     }
     elseif ($httpCode -ge 300 -and $httpCode -lt 400) {
         if (Test-RedirectAllowed -Location $location -OriginalUrl $Url) {
@@ -1851,6 +2120,9 @@ function New-StrategyResult {
         elseif ($targetsPassed -gt 0) {
             $verdict = 'partial'
         }
+        elseif ($regressions -gt 0) {
+            $verdict = 'partial'
+        }
     }
     elseif ($regressions -eq 0) {
         $verdict = 'pass'
@@ -1973,6 +2245,16 @@ function Invoke-Strategy {
             }
 
             foreach ($probe in $Probes) {
+                $process.Refresh()
+                if ($process.HasExited) {
+                    $detail = Get-ProcessErrorText -Path $stderrFile
+                    if (-not $detail) {
+                        $detail = 'shadowdpi.exe exited during the probes'
+                    }
+                    $errorText = $detail
+                    break
+                }
+
                 $result = Invoke-ProbeWithRetries -Curl $Curl -Url $probe.Url -Variant $probe.Variant -TimeoutSec $TimeoutSec -IpVersion $IpVersion -WorkRoot $WorkRoot -Attempts $ProbeRepeats
                 $probeResults += $result
 
@@ -1984,7 +2266,7 @@ function Invoke-Strategy {
             }
 
             $process.Refresh()
-            if ($process.HasExited) {
+            if ($process.HasExited -and -not $errorText) {
                 $detail = Get-ProcessErrorText -Path $stderrFile
                 if (-not $detail) {
                     $detail = 'shadowdpi.exe exited during the probes'
@@ -2092,7 +2374,7 @@ function Invoke-Scan {
 
     $exitCode = 0
     $summary = $null
-    $ScanLevel = if ($Level) { $Level } else { $ScanLevel }
+    $levelUsed = if ($Level) { $Level } else { $ScanLevel }
 
     try {
     $urls = @(Read-UrlList -InlineUrls $Urls -File $UrlFile)
@@ -2100,12 +2382,16 @@ function Invoke-Scan {
 
     $dnsArgs = @()
 
+    if (($DnsAddr -or $DnsV6Addr) -and $DnsResolver -in 'cloudflare', 'google') {
+        Write-Warn "The $DnsResolver resolver choice is ignored because an explicit DNS address was supplied."
+    }
+
     if (-not $DnsAddr -and -not $DnsV6Addr) {
         if ($DnsResolver -eq 'ask') {
             if ($DryRun) {
                 Write-Info 'DNS: system resolver (prompt skipped in dry run)'
             }
-            elseif (Test-InteractiveHost) {
+            elseif (Test-InteractiveHost -and -not $Quiet) {
                 $choice = Read-DnsChoice -DefaultPort $DnsPort -DefaultV6Port $DnsV6Port
                 if ($null -eq $choice) {
                     Write-Info 'DNS: system resolver'
@@ -2139,7 +2425,7 @@ function Invoke-Scan {
         $dnsArgs += @('--dns-addr', $DnsAddr, '--dns-port', "$DnsPort")
     }
     elseif ($script:BoundParameters.ContainsKey('DnsPort')) {
-        throw 'DnsPort requires DnsAddr or a DNS resolver choice'
+        throw 'DnsPort requires DnsAddr or a resolver that supplies an IPv4 address'
     }
 
     if ($DnsV6Addr) {
@@ -2174,7 +2460,7 @@ function Invoke-Scan {
         }
     }
 
-    $strategies = @(Get-Strategies -Level $ScanLevel -DnsArgs $dnsArgs -FakeSniHosts $fakeSniHosts)
+    $strategies = @(Get-Strategies -Level $levelUsed -DnsArgs $dnsArgs -FakeSniHosts $fakeSniHosts)
 
     if ($MaxStrategies -gt 0 -and $strategies.Count -gt $MaxStrategies) {
         Write-Warn "limiting the matrix from $($strategies.Count) to $MaxStrategies strategies"
@@ -2183,7 +2469,7 @@ function Invoke-Scan {
 
     $probeRepeats = $Repeats
     if ($probeRepeats -eq 0) {
-        if ($ScanLevel -eq 'full') {
+        if ($levelUsed -eq 'full') {
             $probeRepeats = 2
         }
         else {
@@ -2204,7 +2490,7 @@ function Invoke-Scan {
     if ($DryRun) {
         Write-Info "ShadowDPI: $exePath"
         Write-Info "URLs: $($urls.Count), probes: $($probes.Count), strategies: $($strategies.Count)"
-        Write-Info "Scan level: $ScanLevel, protocols: $Protocols, repeats: $probeRepeats, timeout: ${TimeoutSec}s"
+        Write-Info "Scan level: $levelUsed, protocols: $Protocols, repeats: $probeRepeats, timeout: ${TimeoutSec}s"
         if ($dnsArgs.Count -gt 0) {
             Write-Info "DNS redirect: $($dnsArgs -join ' ')"
         }
@@ -2251,8 +2537,13 @@ function Invoke-Scan {
     $curlVersionText = Invoke-NativeText -FilePath $curlPath -Arguments @('--version')
     $curlVersion = ([string](@($curlVersionText -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -First 1)).Trim()
 
-    if ($dnsArgs.Count -gt 0 -and $DnsAddr) {
-        Test-DnsEndpoint -Address $DnsAddr -Port $DnsPort
+    if ($dnsArgs.Count -gt 0) {
+        if ($DnsAddr) {
+            Test-DnsEndpoint -Address $DnsAddr -Port $DnsPort
+        }
+        elseif ($DnsV6Addr) {
+            Test-DnsEndpoint -Address $DnsV6Addr -Port $DnsV6Port
+        }
     }
 
     $exeVersion = Get-ExeVersion -ExePath $exePath
@@ -2265,7 +2556,7 @@ function Invoke-Scan {
     Write-Info "Version: $exeVersion"
     Write-Info "curl: $curlVersion"
     Write-Info "URLs: $($urls.Count), probes: $($probes.Count), strategies: $($strategies.Count)"
-    Write-Info "Scan level: $ScanLevel, protocols: $Protocols, repeats: $probeRepeats, timeout: ${TimeoutSec}s"
+    Write-Info "Scan level: $levelUsed, protocols: $Protocols, repeats: $probeRepeats, timeout: ${TimeoutSec}s"
     if ($dnsArgs.Count -gt 0) {
         Write-Info "DNS redirect: $($dnsArgs -join ' ')"
     }
@@ -2327,13 +2618,13 @@ function Invoke-Scan {
     $summary = [pscustomobject]@{
         tool          = 'shadowdpi-scan'
         formatVersion = 1
-        generatedUtc  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        generatedUtc  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
         shadowdpi     = [pscustomobject]@{
             path    = $exePath
             version = $exeVersion
         }
         curl          = $curlVersion
-        scanLevel     = $ScanLevel
+        scanLevel     = $levelUsed
         protocols     = $Protocols
         ipVersion     = $IpVersion
         timeoutSec    = $TimeoutSec
@@ -2531,8 +2822,11 @@ function Invoke-InstallAction {
     }
 
     $source = Get-SourceInfo -Path $SourcePath
-    if ($existing -and $Mode -eq 'upgrade' -and (Test-SamePath -First $source.Path -Second $path)) {
-        throw "The source folder is the installed folder. Extract the new release and run install.ps1 from there to upgrade."
+    if ($existing -and (Test-SamePath -First $source.Path -Second $path)) {
+        if ($Mode -eq 'upgrade') {
+            throw "The source folder is the installed folder. Extract the new release and run install.ps1 from there to upgrade."
+        }
+        throw "The source folder is the installed folder. Run install.ps1 from a fresh release folder to reinstall."
     }
 
     Write-Info ''
@@ -2551,6 +2845,7 @@ function Invoke-InstallAction {
     $startType = $script:DefaultStartType
     $startAfter = $true
     $oldServiceName = ''
+    $oldServiceWasRunning = $false
 
     if ($existing) {
         $serviceEnabled = $state.ServiceEnabled
@@ -2560,7 +2855,8 @@ function Invoke-InstallAction {
         if ($null -ne $state.Service) {
             $serviceEnabled = $true
             $oldServiceName = $state.Service.Name
-            $startAfter = ($state.Service.Status -eq 'Running')
+            $oldServiceWasRunning = ($state.Service.Status -eq 'Running')
+            $startAfter = $oldServiceWasRunning
         }
         elseif ($serviceEnabled) {
             $startAfter = $true
@@ -2577,7 +2873,7 @@ function Invoke-InstallAction {
     if ($null -ne $explicitServiceArgs) {
         $serviceArgs = $explicitServiceArgs
     }
-    if ($NoService -and $null -eq $state.Service) {
+    if ($NoService -and -not $existing) {
         $serviceEnabled = $false
         $startAfter = $false
     }
@@ -2615,6 +2911,7 @@ function Invoke-InstallAction {
         }
     }
 
+    $startType = ConvertTo-ScStartMode -StartType $startType
     if ($serviceEnabled) {
         Assert-ServiceName -Name $serviceName
     }
@@ -2622,48 +2919,86 @@ function Invoke-InstallAction {
         throw 'Service arguments must be a single line.'
     }
 
+    if ($serviceEnabled -and -not $existing) {
+        $conflict = Get-ServiceInfo -Name $serviceName
+        if ($null -ne $conflict) {
+            $launch = Get-ServiceLaunch -PathName $conflict.PathName
+            $sameFolder = $false
+            $conflictPath = $conflict.PathName
+            if ($launch.ExePath) {
+                $conflictPath = $launch.ExePath
+                try {
+                    $sameFolder = Test-SamePath -First (Split-Path -Parent $launch.ExePath) -Second $path
+                }
+                catch {
+                }
+            }
+            if (-not $sameFolder) {
+                throw "A service named $serviceName already exists at $conflictPath. Pass -ServiceName with a different name or remove that service first."
+            }
+        }
+    }
+
     if ($oldServiceName -and $oldServiceName -ne $serviceName) {
         Write-Warn "The service name is changing from $oldServiceName to $serviceName."
     }
 
-    if ($oldServiceName) {
-        $oldWasRunning = Stop-ShadowService -Name $oldServiceName
-        if ($oldWasRunning -and -not $NoStart) {
-            $startAfter = $true
+    $completed = $false
+    try {
+        if ($oldServiceName) {
+            $oldWasRunning = Stop-ShadowService -Name $oldServiceName
+            if ($oldWasRunning -and -not $NoStart) {
+                $startAfter = $true
+            }
         }
+
+        [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
+        Copy-InstallPayload -SourcePath $source.Path -DestinationPath $path -ScriptPath $script:ScriptPath
+
+        $serviceExe = Join-Path $path 'shadowdpi.exe'
+        if ($serviceEnabled) {
+            if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
+                Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+            }
+            else {
+                New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+            }
+
+            if ($startAfter) {
+                Start-ShadowService -Name $serviceName
+            }
+            else {
+                [void](Stop-ShadowService -Name $serviceName)
+            }
+        }
+
+        if ($oldServiceName -and $oldServiceName -ne $serviceName) {
+            Remove-ShadowService -Name $oldServiceName
+        }
+
+        $running = $false
+        if ($serviceEnabled) {
+            $service = Get-ServiceInfo -Name $serviceName
+            $running = ($null -ne $service -and $service.Status -eq 'Running')
+        }
+
+        Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
+        $completed = $true
     }
-
-    [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
-    Copy-InstallPayload -SourcePath $source.Path -DestinationPath $path -ScriptPath $script:ScriptPath
-
-    $serviceExe = Join-Path $path 'shadowdpi.exe'
-    if ($serviceEnabled) {
-        if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
-            Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+    catch {
+        if (-not $completed) {
+            if ($oldServiceName -and $oldServiceName -ne $serviceName -and $null -ne (Get-ServiceInfo -Name $serviceName)) {
+                try {
+                    Remove-ShadowService -Name $serviceName
+                }
+                catch {
+                    Write-Warn "The new service $serviceName could not be removed after the failure."
+                }
+            }
+            Restore-ShadowService -Name $oldServiceName -ExePath (Join-Path $path 'shadowdpi.exe') -Arguments $state.ServiceArgs -StartType $state.StartType -WasRunning $oldServiceWasRunning
         }
-        else {
-            New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
-        }
-
-        if ($startAfter) {
-            Start-ShadowService -Name $serviceName
-        }
-        else {
-            [void](Stop-ShadowService -Name $serviceName)
-        }
+        throw
     }
-
-    if ($oldServiceName -and $oldServiceName -ne $serviceName) {
-        Remove-ShadowService -Name $oldServiceName
-    }
-
-    $running = $false
-    if ($serviceEnabled) {
-        $service = Get-ServiceInfo -Name $serviceName
-        $running = ($null -ne $service -and $service.Status -eq 'Running')
-    }
-
-    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
 
     Write-Info ''
     Write-Info "ShadowDPI $($source.Version) is installed at $path."
@@ -2678,6 +3013,11 @@ function Invoke-InstallAction {
     }
     else {
         Write-Info 'Service: not installed'
+    }
+
+    $defaultPath = Get-DefaultInstallPath
+    if (-not (Test-SamePath -First $path -Second $defaultPath)) {
+        Write-Info "Custom install path: pass -InstallPath '$path' to later actions."
     }
 
     return 0
@@ -2733,7 +3073,7 @@ function Invoke-ReconfigureAction {
         $startAfter = $false
     }
 
-    if (-not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+    if (-not $NoService -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
         Write-Info ''
         Write-InstallStatus -State $state
         Write-Info ''
@@ -2764,6 +3104,7 @@ function Invoke-ReconfigureAction {
         }
     }
 
+    $startType = ConvertTo-ScStartMode -StartType $startType
     if ($serviceEnabled) {
         Assert-ServiceName -Name $serviceName
     }
@@ -2771,48 +3112,66 @@ function Invoke-ReconfigureAction {
         throw 'Service arguments must be a single line.'
     }
 
-    if ($oldServiceName) {
-        [void](Stop-ShadowService -Name $oldServiceName)
-    }
-
-    $serviceExe = Join-Path $path 'shadowdpi.exe'
-    if ($serviceEnabled) {
-        if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
-            Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
-        }
-        else {
-            New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
-        }
-
-        if ($startAfter) {
-            Start-ShadowService -Name $serviceName
-        }
-        else {
-            [void](Stop-ShadowService -Name $serviceName)
-        }
-    }
-    else {
+    $completed = $false
+    try {
         if ($oldServiceName) {
+            [void](Stop-ShadowService -Name $oldServiceName)
+        }
+
+        $serviceExe = Join-Path $path 'shadowdpi.exe'
+        if ($serviceEnabled) {
+            if ($null -ne (Get-ServiceInfo -Name $serviceName)) {
+                Set-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+            }
+            else {
+                New-ShadowService -Name $serviceName -ExePath $serviceExe -Arguments $serviceArgs -StartType $startType
+            }
+
+            if ($startAfter) {
+                Start-ShadowService -Name $serviceName
+            }
+            else {
+                [void](Stop-ShadowService -Name $serviceName)
+            }
+        }
+        else {
+            if ($oldServiceName) {
+                Remove-ShadowService -Name $oldServiceName
+            }
+        }
+
+        if ($oldServiceName -and $oldServiceName -ne $serviceName) {
             Remove-ShadowService -Name $oldServiceName
         }
-    }
 
-    if ($oldServiceName -and $oldServiceName -ne $serviceName) {
-        Remove-ShadowService -Name $oldServiceName
-    }
+        $running = $false
+        if ($serviceEnabled) {
+            $service = Get-ServiceInfo -Name $serviceName
+            $running = ($null -ne $service -and $service.Status -eq 'Running')
+        }
 
-    $running = $false
-    if ($serviceEnabled) {
-        $service = Get-ServiceInfo -Name $serviceName
-        $running = ($null -ne $service -and $service.Status -eq 'Running')
-    }
+        $versionText = $state.VersionText
+        if (-not $versionText -and (Test-Path -LiteralPath $serviceExe -PathType Leaf)) {
+            $versionText = Get-ExeVersion -ExePath $serviceExe
+        }
 
-    $versionText = $state.VersionText
-    if (-not $versionText -and (Test-Path -LiteralPath $serviceExe -PathType Leaf)) {
-        $versionText = Get-ExeVersion -ExePath $serviceExe
+        Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $versionText -SourcePath $path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
+        $completed = $true
     }
-
-    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $versionText -SourcePath $path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running
+    catch {
+        if (-not $completed) {
+            if ($oldServiceName -and $oldServiceName -ne $serviceName -and $null -ne (Get-ServiceInfo -Name $serviceName)) {
+                try {
+                    Remove-ShadowService -Name $serviceName
+                }
+                catch {
+                    Write-Warn "The new service $serviceName could not be removed after the failure."
+                }
+            }
+            Restore-ShadowService -Name $oldServiceName -ExePath (Join-Path $path 'shadowdpi.exe') -Arguments $state.ServiceArgs -StartType $state.StartType -WasRunning $wasRunning
+        }
+        throw
+    }
 
     Write-Info ''
     Write-Info 'ShadowDPI configuration updated.'
@@ -2856,22 +3215,46 @@ function Invoke-UninstallAction {
         }
     }
 
+    $safePath = $null
+    $hasPayload = $false
+    if (Test-Path -LiteralPath $path -PathType Container) {
+        $safePath = Assert-SafeInstallPath -Path $path
+        $hasPayload = (Test-Path -LiteralPath (Join-Path $safePath 'shadowdpi.exe') -PathType Leaf) -or (Test-Path -LiteralPath (Join-Path $safePath $script:InstallMetadataName) -PathType Leaf)
+    }
+
+    $removedSomething = ($null -ne $state.Service)
     if ($null -ne $state.Service) {
         Remove-ShadowService -Name $serviceName
     }
 
-    if (Test-Path -LiteralPath $path -PathType Container) {
-        $safePath = Assert-SafeInstallPath -Path $path
-        $current = (Get-Location).ProviderPath
-        if ((Test-SamePath -First $current -Second $safePath)) {
-            Set-Location -LiteralPath (Split-Path -Parent $safePath)
+    if ($null -ne $safePath) {
+        if ($hasPayload) {
+            [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
         }
 
-        Write-Info "Removing $safePath..."
-        Remove-Item -LiteralPath $safePath -Recurse -Force
+        $current = (Get-Location).ProviderPath
+        if (Test-PathWithin -Path $current -Root $safePath) {
+            $parent = Split-Path -Parent $safePath
+            [IO.Directory]::SetCurrentDirectory($parent)
+            Set-Location -LiteralPath $parent
+        }
+
+        if (-not $hasPayload) {
+            Write-Warn "Skipping $safePath because it does not contain shadowdpi.exe or $($script:InstallMetadataName)."
+        }
+        else {
+            Write-Info "Removing $safePath..."
+            Remove-Item -LiteralPath $safePath -Recurse -Force -ErrorAction Stop
+            $removedSomething = $true
+        }
     }
 
-    Write-Info 'ShadowDPI was removed.'
+    if ($removedSomething) {
+        Write-Info 'ShadowDPI was removed.'
+    }
+    else {
+        Write-Info 'Nothing was removed.'
+    }
     return 0
 }
 
@@ -2880,6 +3263,7 @@ function Invoke-InteractiveMenu {
         throw 'The interactive menu requires a console. Use -Action install, upgrade, reconfigure, uninstall, or scan.'
     }
 
+    $menuExitCode = 0
     while ($true) {
         $path = Get-InstallPath
         $state = Get-InstalledState -Path $path
@@ -2953,13 +3337,15 @@ function Invoke-InteractiveMenu {
                     }
                 }
             }
+            $menuExitCode = 0
         }
         catch {
             Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+            $menuExitCode = 1
         }
 
         if ($exit) {
-            return 0
+            return $menuExitCode
         }
 
         [void](Read-Host 'Press Enter to continue')

@@ -85,7 +85,10 @@ A custom folder can be selected with `-InstallPath`:
 .\install.ps1 -Action install -InstallPath 'D:\Tools\ShadowDPI'
 ```
 
-The folder must not be a drive root or a protected system folder.
+The folder must not be a drive root, a protected system folder, or a folder
+inside the extracted release. Pass the same `-InstallPath` to later actions on
+a custom install. Without it, the installer looks in
+`%ProgramFiles%\ShadowDPI` and then at the registered service path.
 
 ## Service settings
 
@@ -114,6 +117,10 @@ Reinstall and upgrade preserve the service name, arguments, start mode, and
 whether the service was running. If the service was running, it is stopped for
 the file update and started again afterward. If it was stopped, it stays
 stopped. `-NoStart` forces it to stay stopped.
+
+If a service with the requested name already exists and points to a different
+folder, a new install stops with an error instead of changing that service.
+Choose another name with `-ServiceName` or remove the existing service first.
 
 `-NoService` has different effects by action:
 
@@ -174,7 +181,7 @@ release folder untouched. Non-interactive uninstall requires `-Force`:
 | Parameter | Meaning |
 | --- | --- |
 | `-Action menu\|install\|upgrade\|reconfigure\|uninstall\|scan` | Action to run. Defaults to `menu`. |
-| `-InstallPath <path>` | Install folder. Defaults to `%ProgramFiles%\ShadowDPI`, or to the path in `install.json`. |
+| `-InstallPath <path>` | Install folder. Defaults to `%ProgramFiles%\ShadowDPI`. A registered service can also identify the folder. Pass this parameter to later actions on a custom install. |
 | `-ServiceName <name>` | Windows service name. Defaults to `ShadowDPI` on a new install and preserves the existing name otherwise. |
 | `-ServiceArgs <args>` | Arguments stored in the service binary path. Defaults to `-9` on a new install and preserves the existing value otherwise. |
 | `-NoService` | Skip service creation on a new install, preserve an existing service on reinstall or upgrade, or remove it on reconfigure. |
