@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Deep Packet Inspection circumvention for Windows x64.</strong><br>
-  A modern C++20 implementation that does the same work with a fraction of the CPU.
+  A modern C++20 implementation that does more with less CPU.
 </p>
 
 <p align="center">
