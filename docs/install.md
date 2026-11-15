@@ -84,7 +84,7 @@ At startup, `shadowdpi.exe` checks that `WinDivert64.sys` sits next to the loade
 `WinDivert.dll` and stops with an error if it is missing. Copying only
 `shadowdpi.exe` out of the archive is not enough. If the two files come from
 different WinDivert releases, WinDivert reports the mismatch when the driver is
-opened and the message names the existing driver.
+opened, and the error explains how to remove the loaded driver.
 
 A custom folder can be selected with `-InstallPath`:
 
