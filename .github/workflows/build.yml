@@ -23,7 +23,6 @@ on:
       - 'README.md'
       - 'README.ru.md'
       - 'README.tr.md'
-      - 'CHANGELOG.md'
       - 'SECURITY.md'
       - 'packaging/**'
       - '.github/workflows/build.yml'
@@ -116,7 +115,6 @@ jobs:
           Copy-Item README.md $dir
           Copy-Item README.ru.md $dir
           Copy-Item README.tr.md $dir
-          Copy-Item CHANGELOG.md $dir
           Copy-Item SECURITY.md $dir
           Copy-Item install.ps1 $dir
           Copy-Item docs $dir -Recurse
@@ -179,7 +177,7 @@ jobs:
 
           ### Notes
 
-          - See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for what changed.
+          - Full commit history for this tag: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
           - ShadowDPI needs Administrator rights and loads the WinDivert kernel driver.
           - The executable is not Authenticode-signed, so SmartScreen and some
             antivirus engines may warn. Verify the hash or build from source.

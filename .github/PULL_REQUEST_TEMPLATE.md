@@ -17,7 +17,6 @@
 ## Docs
 
 - [ ] `README.md` and `docs/` still match the code
-- [ ] `CHANGELOG.md` updated under `Unreleased` if user-visible
 
 ## Notes for reviewers
 
