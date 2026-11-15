@@ -139,9 +139,12 @@ void parse_auto_ttl(Config& config, std::optional<std::string_view> value)
     config.fake.auto_ttl.max = parse_u8(parts[2], "--auto-ttl");
 }
 
-// Applies one long option to config. value is empty for flags and set for
-// options that accept an argument, either inline after '=' or as the next argv
-// entry.
+/**
+ * Applies one long option to config.
+ *
+ * @param value Empty for flags, and set for options that accept an argument,
+ *              either inline after '=' or as the next argv entry.
+ */
 void apply_long_option(Config& config,
                        std::string_view name,
                        std::optional<std::string_view> value)
@@ -391,9 +394,18 @@ void apply_short_option(Config& config, char option)
 
 } // namespace
 
-// Parses argv into a Config, applying presets in the order they appear so a
-// later flag can override an earlier preset. Options that take a separate value
-// consume the next argument, which is why the index advances by hand.
+/**
+ * Parses argv into a Config.
+ *
+ * Presets are applied in the order they appear, so a later flag can override an
+ * earlier preset. Options that take a separate value consume the next argument,
+ * which is why the index advances by hand.
+ *
+ * @param argc Argument count, as passed to main.
+ * @param argv Argument vector, as passed to main.
+ * @return The parsed configuration, already finalized unless help or version
+ *         was requested.
+ */
 Config parse_cli(int argc, char* argv[])
 {
     Config config;
