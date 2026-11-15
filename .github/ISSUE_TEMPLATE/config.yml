@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and setup help
+    url: https://github.com/amcique/ShadowDPI/discussions
+    about: Ask about installation, presets, or a provider that needs tuning.
   - name: Security policy
     url: https://github.com/amcique/ShadowDPI/security/policy
     about: Report a vulnerability privately. Do not open a public issue for security bugs.

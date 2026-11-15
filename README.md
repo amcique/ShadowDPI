@@ -290,7 +290,10 @@ build copies `WinDivert.dll` and `WinDivert64.sys` next to the executable in
 Tests and the parser benchmark are built by default. To build only the
 executable, configure with `-DSHADOWDPI_BUILD_TESTS=OFF`. For a CI-equivalent
 strict build, add `-DSHADOWDPI_WARNINGS_AS_ERRORS=ON` and
-`-DSHADOWDPI_REQUIRE_WINDIVERT_RUNTIME=ON`.
+`-DSHADOWDPI_REQUIRE_WINDIVERT_RUNTIME=ON`; CI builds with both enabled.
+
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers the review process, commit format, and style rules.
 
 ### What the tests cover
 

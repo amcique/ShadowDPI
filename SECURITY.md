@@ -91,9 +91,13 @@ These are the properties a report should be measured against.
 - **Bounded state.** The TTL and DNS trackers have hard entry caps and evict
   rather than grow without limit under a spoofed-packet flood.
 - **No telemetry.** ShadowDPI makes no outbound connections of its own.
-- **Reproducible builds.** Releases are built in GitHub Actions from the tagged
-  commit; the workflow pins the WinDivert 2.2.0-D SHA-256 and publish
-  build-provenance attestations.
+- **Verifiable builds.** Releases are built in GitHub Actions from the tagged
+  commit, the workflow pins the WinDivert 2.2.0-D SHA-256, and every archive is
+  published with a build-provenance attestation. Verify one with
+  `gh attestation verify`, as the release notes describe. The build is not
+  bit-for-bit reproducible: the runner image and the MSVC version follow the
+  hosted image rather than a pinned toolchain, so rebuilding produces a working
+  binary with a different hash.
 
 The full pre-release review, including issues found and how they were fixed, is
 in [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).

@@ -11,8 +11,7 @@ body:
         Please check that the issue is in ShadowDPI itself. A site that does
         not open is usually blocked by the provider, not by this program. The
         limits section of the README explains what the project does not
-        promise. Usage questions belong in the issue tracker as well, but
-        mark them clearly as questions.
+        promise. Setup and usage questions belong in Discussions, not here.
 
   - type: checkboxes
     id: preflight

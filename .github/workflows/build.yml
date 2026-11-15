@@ -46,6 +46,17 @@ on:
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
+# The build job only reads the repository. The release job widens this for the
+# step that publishes an archive.
+permissions:
+  contents: read
+
+# A new push supersedes the previous run for the same ref. Tag runs are never
+# cancelled, because they publish a release.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
 env:
   WINDIVERT_URL: https://reqrypt.org/download/WinDivert-2.2.0-D.zip
   WINDIVERT_NAME: WinDivert-2.2.0-D.zip
@@ -56,8 +67,11 @@ jobs:
   msvc-x64:
     name: MSVC x64
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Declare short commit variable
         id: vars
@@ -89,7 +103,9 @@ jobs:
         shell: pwsh
         run: |
           $env:WINDIVERT_ROOT = Join-Path $env:GITHUB_WORKSPACE $env:WINDIVERT_BASENAME
-          cmake --preset msvc-x64
+          cmake --preset msvc-x64 `
+            -DSHADOWDPI_WARNINGS_AS_ERRORS=ON `
+            -DSHADOWDPI_REQUIRE_WINDIVERT_RUNTIME=ON
 
       - name: Build
         run: cmake --build --preset msvc-x64-release
@@ -138,6 +154,7 @@ jobs:
     needs: msvc-x64
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       actions: read
@@ -186,18 +203,21 @@ jobs:
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
-        # Attestations need a public repository, or GitHub Enterprise Cloud.
-        # Do not block the release if the repository is still private.
-        continue-on-error: true
+        # Attestations need a public repository, or GitHub Enterprise Cloud. The
+        # repository is public, so a release without an attestation would break
+        # the verification steps in SECURITY.md and the release body. Let this
+        # step fail the job instead of publishing an unverifiable archive.
         with:
           subject-path: shadowdpi-*-x64.zip
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
+        # Pinned to v3.0.4. This is the only third-party action in the workflow
+        # that holds a write token, and the release body is written in full
+        # below, so generated notes are not added.
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3
         with:
           name: ShadowDPI ${{ github.ref_name }}
           body_path: release-body.md
-          generate_release_notes: true
           files: |
             shadowdpi-*.zip
             shadowdpi-*.sha256
