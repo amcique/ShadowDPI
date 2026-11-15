@@ -21,11 +21,15 @@ scanning. The scan can also be started directly:
 The scanner asks for a DNS resolver in an interactive session. Pass
 `-DnsResolver system` to skip the question, or `-DnsAddr` for a custom address.
 
-The installer copies a fixed payload from the release folder:
+The installer copies a fixed top-level payload from the release folder:
 `shadowdpi.exe`, `WinDivert.dll`, `WinDivert64.sys`, `LICENSE`, `NOTICE`,
 `README.md`, `install.ps1`, and the `docs`, `tools`, and `resources` folders.
 Add new top-level release files to `Copy-InstallPayload` in `install.ps1`.
-Files removed between releases are not deleted from an existing install.
+The copied files are recorded in `install.json`; an upgrade removes files from
+the previous payload that the new release no longer contains and prunes
+folders that become empty. An installation created by an older installer has
+no payload list, so its first upgrade records the list without deleting
+anything.
 
 The full guide, including installer actions, scan levels, DNS options, result
 verdicts, JSON output, and exit codes, is in

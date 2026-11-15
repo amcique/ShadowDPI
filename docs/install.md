@@ -76,8 +76,9 @@ The default install folder is `%ProgramFiles%\ShadowDPI`. The installer copies:
 - `resources`, when it exists in the release
 
 It writes `install.json` in the install folder. That file records the version,
-the source folder, the install time, and the service settings. The installer
-uses it to find an existing installation and to preserve its configuration.
+the source folder, the install time, the service settings, and the installed
+payload. The installer uses it to find an existing installation, preserve its
+configuration, and remove files that a later release no longer contains.
 
 A custom folder can be selected with `-InstallPath`:
 
@@ -157,10 +158,11 @@ Extract the new release and run the installer from that new folder:
 ```
 
 The installer checks for an existing installation, reads `install.json`, stops
-the service if needed, replaces the program files, restores the service
-settings, and starts the service again if it was running. It does not run
-`-Action upgrade` from the installed folder because that folder already
-contains the old files. Use a freshly extracted release folder as the source.
+the service if needed, replaces the program files, removes files that the new
+release no longer contains, restores the service settings, and starts the
+service again if it was running. It does not run `-Action upgrade` from the
+installed folder because that folder already contains the old files. Use a
+freshly extracted release folder as the source.
 
 ## Uninstall
 
@@ -208,6 +210,17 @@ A successful install writes a file like this:
   "installedUtc": "2026-11-15T00:00:00Z",
   "updatedUtc": "2026-11-15T00:00:00Z",
   "sourcePath": "C:\\Users\\you\\Downloads\\shadowdpi-0.3.0-x64",
+  "payload": [
+    "shadowdpi.exe",
+    "WinDivert.dll",
+    "WinDivert64.sys",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "install.ps1",
+    "docs\\install.md",
+    "tools\\scan-urls.txt"
+  ],
   "service": {
     "enabled": true,
     "name": "ShadowDPI",
@@ -219,8 +232,13 @@ A successful install writes a file like this:
 ```
 
 `installedUtc` is kept across upgrades. `updatedUtc`, `version`, `sourcePath`,
-and the service block are refreshed after every install, upgrade, or
-reconfigure. `startType` is `auto`, `demand`, or `disabled`.
+`payload`, and the service block are refreshed after every install or upgrade.
+`reconfigure` keeps the recorded `sourcePath` and `payload` because it does not
+replace files. `startType` is `auto`, `demand`, or `disabled`. `payload` lists
+the files that belong to the installation; an upgrade removes files from the
+previous payload that are absent from the new release and prunes folders that
+become empty. An installation created by an older installer has no `payload`
+list, so the first upgrade writes the list without removing anything.
 
 ## Exit codes
 
