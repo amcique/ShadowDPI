@@ -7,7 +7,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/amcique/ShadowDPI/releases/download/v0.3.0/shadowdpi-0.3.0-x64.zip",
-      "hash": "73fbf118ff94b72fd81002e33687c43e30e536c490ced78787bd7b6ede8c5c5f",
+      "hash": "00e09911bc4f22117d963899e178c2271412bcb82153dae67dff4642d32cae65",
       "extract_dir": "shadowdpi-0.3.0-x64"
     }
   },
