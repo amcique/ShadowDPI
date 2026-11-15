@@ -1,3 +1,5 @@
+﻿# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
+
 PackageIdentifier: amcique.ShadowDPI
 PackageVersion: 0.3.0
 PackageLocale: en-US
@@ -21,4 +23,4 @@ Tags:
 InstallationNotes: Run shadowdpi.exe from an elevated prompt. The archive includes WinDivert.dll and WinDivert64.sys, which must stay next to the executable.
 ReleaseNotesUrl: https://github.com/amcique/ShadowDPI/releases/tag/v0.3.0
 ManifestType: defaultLocale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0
