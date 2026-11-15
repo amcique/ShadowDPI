@@ -20,17 +20,15 @@
   <strong>English</strong> · <a href="README.ru.md">Русский</a> · <a href="README.tr.md">Türkçe</a>
 </p>
 
-ShadowDPI sits between Windows and the network and rewrites the opening packets
-of a connection so that DPI equipment cannot classify it. It runs in user space
-on top of WinDivert, so traffic stays encrypted end to end and applications keep
-talking to the real destination.
+ShadowDPI changes the first packets of a connection so that deep packet
+inspection (DPI) has a harder time recognizing it. It runs as a normal program
+on top of WinDivert, so your traffic stays encrypted and apps keep connecting
+to the real server.
 
-It is a from-scratch C++20 implementation of the techniques popularised by
-[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI). It is one static executable
-with no runtime dependencies, and it costs almost nothing to leave on: on a busy
-19 MiB/s link it uses around 0.03% of one core. Against GoodbyeDPI on the same
-host, with the same workloads and byte counts, it used 67.8× less CPU per
-gigabyte while wall-clock transfer time stayed identical.
+It works with HTTP and HTTPS, and it can block QUIC so browsers switch to TCP. A
+built-in scanner tries different settings against sites you choose. It needs
+Administrator rights because it loads a kernel driver. It is not a VPN: your IP
+address does not change, and your traffic is not sent through another server.
 
 ## Quick start
 
@@ -71,17 +69,15 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 ## Why ShadowDPI
 
 - **Light enough to leave running.** About 0.03% of one core on a busy 19 MiB/s
-  link, and 500-810× less CPU than GoodbyeDPI on bulk HTTPS transfers. Lighter
-  workloads show 2-75×, 67.8× aggregated by bytes transferred. That leaves
-  headroom for routers, VPNs, and everything else on the machine.
+  link. The full comparison with GoodbyeDPI is in [Performance](#performance).
 - **Transparent by construction.** If ShadowDPI stops, applications keep
   working; nothing is installed into the certificate store and no proxy settings
   change.
 - **A strategy scanner, not just presets.** DPI differs per provider and changes
   over time. `install.ps1 -Action scan` tests presets and option combinations
   against your own URL list and reports the first one that recovers everything.
-- **Modern C++20, built like systems software.** One static executable with no
-  runtime dependencies; a platform-independent, unit-tested core; a thin Windows
+- **Modern C++20, built like systems software.** One executable and the bundled
+  WinDivert driver; a platform-independent, unit-tested core; a thin Windows
   layer; parser parity tests against `WinDivertHelperParsePacket` with a
   randomised corpus; a parser benchmark with an enforced speedup floor in CI.
 - **Reviewed in the open.** A 20-finding source review was completed and fixed

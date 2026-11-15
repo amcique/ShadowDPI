@@ -19,17 +19,15 @@
   <a href="README.md">English</a> · <a href="README.ru.md">Русский</a> · <strong>Türkçe</strong>
 </p>
 
-ShadowDPI, Windows ile ağ arasına girer ve bir bağlantının ilk paketlerini
-yeniden yazarak DPI cihazlarının bağlantıyı sınıflandırmasını engeller. WinDivert
-üzerinde kullanıcı alanında çalışır; bu yüzden trafik uçtan uca şifreli kalır ve
-uygulamalar gerçek hedefle konuşmaya devam eder.
+ShadowDPI, bir bağlantının ilk paketlerini değiştirerek derin paket incelemesinin
+(DPI) bağlantıyı tanımasını zorlaştırır. WinDivert üzerinde normal bir program
+olarak çalışır; bu yüzden trafiğiniz şifreli kalır ve uygulamalar gerçek sunucuya
+bağlanmaya devam eder.
 
-GoodbyeDPI tarafından yaygınlaştırılan tekniklerin sıfırdan yazılmış bir C++20
-uygulamasıdır. Tek bir statik çalıştırılabilir dosyadır ve çalışma zamanı
-bağımlılığı yoktur. Açık bırakmanın maliyeti neredeyse sıfırdır: 19 MiB/s
-hızındaki yoğun bir bağlantıda tek bir çekirdeğin yaklaşık %0,03'ünü kullanır.
-Aynı makinede, aynı iş yükleri ve aynı bayt sayılarıyla GoodbyeDPI'ye göre
-**gigabayt başına 67,8 kat daha az CPU** kullandı, aktarım süresi ise değişmedi.
+HTTP ve HTTPS ile çalışır; QUIC engellenerek tarayıcının TCP'ye geçmesi
+sağlanabilir. Yerleşik strateji tarayıcısı, seçtiğiniz sitelerde farklı ayarları
+dener. Yönetici hakları gerekir, çünkü bir çekirdek sürücüsü yükler. Bu bir VPN
+değildir: IP adresiniz değişmez ve trafiğiniz başka bir sunucudan geçmez.
 
 ## Hızlı başlangıç
 
@@ -71,21 +69,19 @@ sürümleri uyumlu kalsın.
 ## Neden ShadowDPI
 
 - **Açık bırakılabilecek kadar hafif.** 19 MiB/s hızındaki yoğun bir bağlantıda
-  tek çekirdeğin yaklaşık %0,03'ü, büyük HTTPS aktarımlarında GoodbyeDPI'ye göre
-  500-810 kat daha az CPU. Daha hafif iş yüklerinde 2-75 kat, aktarılan bayt
-  başına 67,8 kat. Bu, makinedeki yönlendiriciler, VPN'ler ve diğer yazılımlar
-  için alan bırakır.
+  tek çekirdeğin yaklaşık %0,03'ü. GoodbyeDPI ile tam karşılaştırma
+  [Performans](#performans) bölümünde.
 - **Yapısı gereği şeffaf.** ShadowDPI durursa uygulamalar çalışmaya devam eder;
   sertifika deposuna hiçbir şey kurulmaz ve proxy ayarları değişmez.
 - **Yalnızca hazır ayarlar değil, strateji tarayıcısı da var.** DPI sağlayıcıya
   göre değişir ve zamanla güncellenir. `install.ps1 -Action scan` hazır ayarları
   ve seçenek birleşimlerini kendi URL listenizde dener, engellenen her adresi
   açan ve çalışan hiçbir adresi bozmayan ilk stratejiyi bildirir.
-- **Modern C++20, sistem yazılımı gibi yazıldı.** Tek bir statik çalıştırılabilir
-  dosya ve çalışma zamanı bağımlılığı yok; platformdan bağımsız ve birim testleri
-  olan bir çekirdek, ince bir Windows katmanı, `WinDivertHelperParsePacket` ile
-  bayt bayt karşılaştırılan ve rastgele bir korpusla sınanan bir paket
-  ayrıştırıcı, CI'da hız eşiği denetlenen bir ayrıştırıcı ölçümü.
+- **Modern C++20, sistem yazılımı gibi yazıldı.** Tek bir çalıştırılabilir dosya
+  ve paketle gelen WinDivert sürücüsü; platformdan bağımsız ve birim testleri olan
+  bir çekirdek, ince bir Windows katmanı, `WinDivertHelperParsePacket` ile bayt
+  bayt karşılaştırılan ve rastgele bir korpusla sınanan bir paket ayrıştırıcı,
+  CI'da hız eşiği denetlenen bir ayrıştırıcı ölçümü.
 - **İncelemesi açık.** İlk herkese açık sürümden önce 20 bulgu içeren bir kaynak
   incelemesi yapıldı ve hepsi düzeltildi. Rapor:
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
