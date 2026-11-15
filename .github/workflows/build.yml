@@ -2,6 +2,8 @@ name: Build ShadowDPI
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
     paths:
