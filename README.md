@@ -5,8 +5,7 @@
 <h1 align="center">ShadowDPI</h1>
 
 <p align="center">
-  <strong>Modern and lightweight DPI circumvention utility for Windows x64.</strong><br>
-  No proxy. No root certificate. No TLS interception. One C++20 executable.
+  <strong>Modern and lightweight DPI circumvention utility for Windows x64.</strong>
 </p>
 
 <p align="center">
@@ -23,9 +22,8 @@
 
 ShadowDPI sits between Windows and the network and rewrites the opening packets
 of a connection so that DPI equipment cannot classify it. It runs in user space
-on top of WinDivert, needs no proxy configuration, installs no root
-certificate, and never terminates TLS. Applications keep talking to the real
-destination.
+on top of WinDivert, so traffic stays encrypted end to end and applications keep
+talking to the real destination.
 
 It is a from-scratch C++20 implementation of the techniques popularised by
 [GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI). It is one static executable
@@ -76,8 +74,9 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
   link, and 500-810× less CPU than GoodbyeDPI on bulk HTTPS transfers. Lighter
   workloads show 2-75×, 67.8× aggregated by bytes transferred. That leaves
   headroom for routers, VPNs, and everything else on the machine.
-- **Transparent by construction.** No proxy settings, no PAC file, no
-  certificate store changes. If ShadowDPI stops, applications keep working.
+- **Transparent by construction.** If ShadowDPI stops, applications keep
+  working; nothing is installed into the certificate store and no proxy settings
+  change.
 - **A strategy scanner, not just presets.** DPI differs per provider and changes
   over time. `install.ps1 -Action scan` tests presets and option combinations
   against your own URL list and reports the first one that recovers everything.

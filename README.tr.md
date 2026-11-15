@@ -5,8 +5,7 @@
 <h1 align="center">ShadowDPI</h1>
 
 <p align="center">
-  <strong>Windows x64 için modern ve hafif DPI atlatma aracı.</strong><br>
-  Proxy yok. Kök sertifika yok. TLS müdahalesi yok. Tek bir C++20 çalıştırılabilir dosya.
+  <strong>Windows x64 için modern ve hafif DPI atlatma aracı.</strong>
 </p>
 
 <p align="center">
@@ -22,9 +21,8 @@
 
 ShadowDPI, Windows ile ağ arasına girer ve bir bağlantının ilk paketlerini
 yeniden yazarak DPI cihazlarının bağlantıyı sınıflandırmasını engeller. WinDivert
-üzerinde kullanıcı alanında çalışır; proxy yapılandırması gerektirmez, kök
-sertifika kurmaz ve TLS trafiğini sonlandırmaz. Uygulamalar gerçek hedefle
-konuşmaya devam eder.
+üzerinde kullanıcı alanında çalışır; bu yüzden trafik uçtan uca şifreli kalır ve
+uygulamalar gerçek hedefle konuşmaya devam eder.
 
 GoodbyeDPI tarafından yaygınlaştırılan tekniklerin sıfırdan yazılmış bir C++20
 uygulamasıdır. Tek bir statik çalıştırılabilir dosyadır ve çalışma zamanı
@@ -77,8 +75,8 @@ sürümleri uyumlu kalsın.
   500-810 kat daha az CPU. Daha hafif iş yüklerinde 2-75 kat, aktarılan bayt
   başına 67,8 kat. Bu, makinedeki yönlendiriciler, VPN'ler ve diğer yazılımlar
   için alan bırakır.
-- **Yapısı gereği şeffaf.** Proxy ayarı, PAC dosyası, sertifika deposu
-  değişikliği yok. ShadowDPI durursa uygulamalar çalışmaya devam eder.
+- **Yapısı gereği şeffaf.** ShadowDPI durursa uygulamalar çalışmaya devam eder;
+  sertifika deposuna hiçbir şey kurulmaz ve proxy ayarları değişmez.
 - **Yalnızca hazır ayarlar değil, strateji tarayıcısı da var.** DPI sağlayıcıya
   göre değişir ve zamanla güncellenir. `install.ps1 -Action scan` hazır ayarları
   ve seçenek birleşimlerini kendi URL listenizde dener, engellenen her adresi
