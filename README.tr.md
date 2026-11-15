@@ -68,22 +68,22 @@ sürümleri uyumlu kalsın.
 
 ## Neden ShadowDPI
 
-- **Açık bırakılabilecek kadar hafif.** 19 MiB/s hızındaki yoğun bir bağlantıda
+- **Düşük CPU maliyeti.** 19 MiB/s hızındaki yoğun bir bağlantıda
   tek çekirdeğin yaklaşık %0,03'ü. GoodbyeDPI ile tam karşılaştırma
   [Performans](#performans) bölümünde.
-- **Yapısı gereği şeffaf.** ShadowDPI durursa uygulamalar çalışmaya devam eder;
-  sertifika deposuna hiçbir şey kurulmaz ve proxy ayarları değişmez.
-- **Yalnızca hazır ayarlar değil, strateji tarayıcısı da var.** DPI sağlayıcıya
+- **Geri alınacak bir şey yok.** ShadowDPI durursa uygulamalar çalışmaya devam
+  eder. Sertifika kurmaz ve proxy ayarlarını değiştirmez.
+- **Yerleşik strateji tarayıcısı.** DPI sağlayıcıya
   göre değişir ve zamanla güncellenir. `install.ps1 -Action scan` hazır ayarları
   ve seçenek birleşimlerini kendi URL listenizde dener, engellenen her adresi
   açan ve çalışan hiçbir adresi bozmayan ilk stratejiyi bildirir.
-- **Modern C++20, sistem yazılımı gibi yazıldı.** Tek bir çalıştırılabilir dosya
+- **C++20, testler ve ölçüm.** Tek bir çalıştırılabilir dosya
   ve paketle gelen WinDivert sürücüsü; platformdan bağımsız ve birim testleri olan
-  bir çekirdek, ince bir Windows katmanı, `WinDivertHelperParsePacket` ile bayt
-  bayt karşılaştırılan ve rastgele bir korpusla sınanan bir paket ayrıştırıcı,
+  bir çekirdek; ince bir Windows katmanı; `WinDivertHelperParsePacket` ile
+  karşılaştırmalı testler ve rastgele bir korpusla sınanan bir paket ayrıştırıcı;
   CI'da hız eşiği denetlenen bir ayrıştırıcı ölçümü.
-- **İncelemesi açık.** İlk herkese açık sürümden önce 20 bulgu içeren bir kaynak
-  incelemesi yapıldı ve hepsi düzeltildi. Rapor:
+- **Herkese açık kod incelemesi.** İlk herkese açık sürümden önce 20 bulgu
+  içeren bir kaynak incelemesi yapıldı ve hepsi düzeltildi. Rapor:
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
 
 ## Karşılaştırma
@@ -127,8 +127,8 @@ kat daha az CPU** kullandı ve aktarım süresi değişmedi.
 ![CPU cost per GiB](docs/performance/cpu-per-gib.svg)
 
 Görünen tutarsızlık aslında sonucun kendisi: iki sürüm de veriyi aynı hızda
-taşıyor, ancak ShadowDPI bunu çok daha az çevrimle yapıyor. Bu, makineyi paylaşan
-yönlendiricilere, VPN'lere ve diğer yazılımlara alan bırakır.
+taşıyor. ShadowDPI bunu çok daha az çevrimle yapıyor, bu da makineyi paylaşan
+yönlendiricilere, VPN'lere ve diğer yazılımlara alan bırakıyor.
 
 ![Wall-clock parity](docs/performance/wall-clock-parity.svg)
 

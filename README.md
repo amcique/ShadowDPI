@@ -68,19 +68,18 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 
 ## Why ShadowDPI
 
-- **Light enough to leave running.** About 0.03% of one core on a busy 19 MiB/s
-  link. The full comparison with GoodbyeDPI is in [Performance](#performance).
-- **Transparent by construction.** If ShadowDPI stops, applications keep
-  working; nothing is installed into the certificate store and no proxy settings
-  change.
-- **A strategy scanner, not just presets.** DPI differs per provider and changes
-  over time. `install.ps1 -Action scan` tests presets and option combinations
+- **Low CPU cost.** About 0.03% of one core on a busy 19 MiB/s link. The full
+  comparison with GoodbyeDPI is in [Performance](#performance).
+- **Nothing to undo.** If ShadowDPI stops, applications keep working. It does
+  not install a certificate or change proxy settings.
+- **A built-in strategy scanner.** DPI differs by provider and changes over
+  time. `install.ps1 -Action scan` tests presets and option combinations
   against your own URL list and reports the first one that recovers everything.
-- **Modern C++20, built like systems software.** One executable and the bundled
+- **C++20, with tests and a benchmark.** One executable and the bundled
   WinDivert driver; a platform-independent, unit-tested core; a thin Windows
   layer; parser parity tests against `WinDivertHelperParsePacket` with a
-  randomised corpus; a parser benchmark with an enforced speedup floor in CI.
-- **Reviewed in the open.** A 20-finding source review was completed and fixed
+  randomized corpus; a parser benchmark with an enforced speedup floor in CI.
+- **A public code review.** A 20-finding source review was completed and fixed
   before the first public release. The report is in
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
 
@@ -125,9 +124,9 @@ per gigabyte** while wall-clock transfer time stayed unchanged.
 
 ![CPU cost per GiB](docs/performance/cpu-per-gib.svg)
 
-The apparent anomaly is the point: the two variants move data at the same
-speed, but ShadowDPI burns far fewer cycles doing it. That leaves headroom for
-routers, VPNs, and other software sharing the machine.
+Both variants move data at the same speed. ShadowDPI uses far fewer CPU cycles
+to do it, which leaves headroom for routers, VPNs, and other software on the
+machine.
 
 ![Wall-clock parity](docs/performance/wall-clock-parity.svg)
 
@@ -218,9 +217,8 @@ layer:
 - The packet parser is tested byte-for-byte against
   `WinDivertHelperParsePacket`, including a randomized corpus.
 
-Techniques are standards-compatible: they change packet boundaries, header
-spacing, letter case, or TTL, not the meaning of HTTP or TLS. No traffic is
-decrypted and no certificate is installed.
+The techniques change packet boundaries, header spacing, letter case, or TTL.
+They do not change the meaning of HTTP or TLS, and no traffic is decrypted.
 
 ## Security
 
@@ -249,9 +247,9 @@ open a public issue.
   but are not the primary test target.
 - **Administrator privileges.** The installer registers a service, and the
   WinDivert driver is loaded on first run.
-- **Self-contained executable.** The executable uses the static MSVC runtime;
-  the release bundles the matching WinDivert DLL and driver. Running
-  `install.ps1` is optional and only copies those files and registers the
+- **No runtime to install.** The executable uses the static MSVC runtime, and
+  the release includes the matching WinDivert DLL and driver. Running
+  `install.ps1` is optional; it only copies those files and registers the
   service.
 - **PowerShell 5.1** is needed for `install.ps1`. The strategy scanner also
   needs `curl.exe`. Both ship with Windows 10 and later.
@@ -363,14 +361,14 @@ published `.sha256` file and check the build attestation (see below), or
 long-standing, legitimately signed driver.
 
 **Is this a VPN? Does it hide my IP?**
-No. ShadowDPI changes how your packets look on the wire so DPI cannot classify
-them. Your traffic still goes directly to the real destination, from your real
-address, unencrypted at the packet layer.
+No. ShadowDPI changes how your packets look on the wire, so DPI has a harder
+time classifying them. Your traffic still goes straight to the real server from
+your real address. ShadowDPI does not add or remove encryption.
 
 **Does it decrypt my traffic?**
-No. There is no TLS interception, no certificate installation, and no proxy. It
-only changes packet boundaries, header spacing, casing, TTL, and sequence or
-checksum fields.
+No. It does not intercept TLS, install certificates, or act as a proxy. It only
+changes packet boundaries, header spacing, casing, TTL, and sequence or checksum
+fields.
 
 **Which preset should I start with?**
 `-9`. If something breaks, try `-5`. If neither works, run the strategy
@@ -408,7 +406,7 @@ If either check fails, do not run the binary.
 ShadowDPI is for network research, for accessing information you are entitled
 to, and for understanding how DPI equipment behaves. It is not a tool for
 attacking networks. Laws and network policies differ by country and by
-organisation; you are responsible for using it lawfully, and nothing here is
+organization; you are responsible for using it lawfully, and nothing here is
 legal advice.
 
 ## Credits
