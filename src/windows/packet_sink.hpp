@@ -11,7 +11,8 @@ class PacketSink {
 public:
     virtual ~PacketSink() = default;
 
-    virtual void send(const PacketBuffer& packet) = 0;
+    /// Returns false when the generated packet could not be sent.
+    [[nodiscard]] virtual bool send(const PacketBuffer& packet) = 0;
 };
 
 } // namespace sdp::win

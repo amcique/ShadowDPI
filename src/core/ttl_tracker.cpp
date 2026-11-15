@@ -42,6 +42,12 @@ void TtlTracker::record_incoming(
         Endpoint{remote_ip, remote_port},
         Endpoint{local_ip, local_port},
     };
+
+    if (entries_.size() >= kMaxEntries && entries_.find(key) == entries_.end()) {
+        // Bound memory under a SYN/ACK flood. The evicted connection simply
+        // loses its auto-TTL hint.
+        entries_.erase(entries_.begin());
+    }
     entries_.try_emplace(key, Entry{ttl, Clock::now()});
 }
 
@@ -121,14 +127,31 @@ void TtlTracker::cleanup()
     }
     last_cleanup_ = now;
 
-    for (auto iterator = entries_.begin(); iterator != entries_.end();) {
-        if (now - iterator->second.timestamp >= kEntryLifetime) {
-            iterator = entries_.erase(iterator);
-        }
-        else {
-            ++iterator;
-        }
+    // Bounded incremental cleanup with bucket rotation, so the packet thread
+    // never walks the whole map at once and every entry is eventually visited.
+    const std::size_t bucket_count = entries_.bucket_count();
+    if (bucket_count == 0) {
+        return;
     }
+
+    std::size_t inspected = 0;
+    std::size_t bucket = next_bucket_ % bucket_count;
+    for (std::size_t visited = 0;
+         visited < bucket_count && inspected < kCleanupBatch; ++visited) {
+        for (auto iterator = entries_.begin(bucket);
+             iterator != entries_.end(bucket) &&
+             inspected < kCleanupBatch;) {
+            ++inspected;
+            if (now - iterator->second.timestamp >= kEntryLifetime) {
+                iterator = entries_.erase(iterator);
+            }
+            else {
+                ++iterator;
+            }
+        }
+        bucket = (bucket + 1) % bucket_count;
+    }
+    next_bucket_ = bucket;
 }
 
 } // namespace sdp

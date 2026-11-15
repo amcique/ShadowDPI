@@ -56,8 +56,8 @@ and cannot fall back, use `-5` instead.
 | Option | Meaning |
 | --- | --- |
 | `-f`, `--http-fragment <size>` | Enable HTTP fragmentation with the given split size. |
-| `-k`, `--http-keepalive-fragment <n>` | Fragment persistent HTTP with split `n`; also enables native splitting and keep-alive handling. |
-| `-n`, `--http-keepalive-nowait` | Do not wait for the first ACK before handling keep-alive requests. |
+| `-k`, `--http-keepalive-fragment <n>` | Fragment persistent HTTP with split `n`; also enables native splitting and persistent-request parsing. |
+| `-n`, `--http-keepalive-nowait` | Enable persistent-request parsing and native splitting immediately. ShadowDPI never waits for the first ACK; the flag is retained for compatibility. |
 | `-r`, `--http-host-replace` | Replace the `Host` header name with `hoSt`. |
 | `-s`, `--http-host-no-space` | Remove the space after `Host:`. |
 | `-a`, `--http-extra-space` | Add a space between the method and the URI; implies `-s`. |
@@ -102,12 +102,16 @@ At most 30 custom or generated fake payloads can be configured.
 
 | Option | Meaning |
 | --- | --- |
-| `--blacklist <file>` | Only apply the tricks to hosts in the file. May be supplied more than once. |
+| `--blacklist <file>` | Apply the host-aware tricks only to hosts in the file. May be supplied more than once. |
 | `--allow-no-sni` | Apply HTTPS tricks when the ClientHello has no SNI. |
 
 Blacklist files contain one domain per line. Blank lines and lines starting
 with `#` or `;` are ignored. A leading dot is optional. A match on a parent
 domain also covers its subdomains.
+
+The blacklist gates the HTTP `Host` and TLS SNI paths. The SYN/ACK window-size
+step used by presets 1-4 runs before any host name is available, so it still
+applies to every connection on the handled ports.
 
 ### Networking
 
@@ -152,7 +156,7 @@ Try the less aggressive fake-TTL preset:
 .\shadowdpi.exe -5
 ```
 
-Apply tricks only to a list of blocked domains:
+Apply the host-aware tricks only to a list of blocked domains:
 
 ```powershell
 .\shadowdpi.exe -5 --blacklist C:\Tools\ShadowDPI\blocked.txt

@@ -21,7 +21,6 @@ void enable_native_fragmentation(Config& config)
 {
     config.native_frag = true;
     config.http.persistent = true;
-    config.http.persistent_nowait = true;
 }
 
 } // namespace
@@ -39,8 +38,8 @@ void apply_preset(Config& config, int preset)
         if (preset <= 2) {
             enable_http_fragment(config, 2);
             enable_https_fragment(config, preset == 1 ? 2 : 40);
+            config.native_frag = true;
             config.http.persistent = true;
-            config.http.persistent_nowait = true;
         }
         else if (preset == 3) {
             enable_https_fragment(config, 40);

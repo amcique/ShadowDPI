@@ -14,7 +14,7 @@ constexpr std::uint32_t kSequenceRewind = 10000;
 
 } // namespace
 
-void send_fake_packet(PacketSink& sink,
+bool send_fake_packet(PacketSink& sink,
                       PacketBuffer& scratch,
                       const PacketBuffer& original,
                       const ParsedPacket& parsed,
@@ -22,17 +22,17 @@ void send_fake_packet(PacketSink& sink,
                       const FakePacketOptions& options) noexcept
 {
     if (parsed.payload == nullptr || payload.empty()) {
-        return;
+        return true;
     }
 
     if (parsed.payload_length > original.length) {
-        return;
+        return true;
     }
 
     const UINT new_length = original.length - parsed.payload_length +
                             static_cast<UINT>(payload.size());
     if (new_length > kMaxPacketSize) {
-        return;
+        return true;
     }
 
     copy_packet(scratch, original);
@@ -70,21 +70,22 @@ void send_fake_packet(PacketSink& sink,
             static_cast<UINT16>(ntohs(fake_parsed.tcp->Checksum) - 1));
     }
 
-    sink.send(scratch);
+    return sink.send(scratch);
 }
 
-void send_fake_requests(PacketSink& sink,
-                        PacketBuffer& scratch,
-                        const PacketBuffer& packet,
-                        const ParsedPacket& parsed,
-                        const FakeOptions& options,
-                        std::uint8_t fake_ttl,
-                        bool https) noexcept
+std::size_t send_fake_requests(PacketSink& sink,
+                               PacketBuffer& scratch,
+                               const PacketBuffer& packet,
+                               const ParsedPacket& parsed,
+                               const FakeOptions& options,
+                               std::uint8_t fake_ttl,
+                               bool https) noexcept
 {
     if (options.resend == 0) {
-        return;
+        return 0;
     }
 
+    std::size_t failures = 0;
     const std::size_t count =
         options.payloads.empty() ? 1 : options.payloads.size();
 
@@ -95,20 +96,24 @@ void send_fake_requests(PacketSink& sink,
                 : std::span<const std::byte>{options.payloads[index]};
 
         for (std::uint8_t repeat = 0; repeat < options.resend; ++repeat) {
-            if (fake_ttl != 0) {
-                send_fake_packet(sink, scratch, packet, parsed, payload,
-                                 FakePacketOptions{fake_ttl, false, false});
+            if (fake_ttl != 0 &&
+                !send_fake_packet(sink, scratch, packet, parsed, payload,
+                                  FakePacketOptions{fake_ttl, false, false})) {
+                ++failures;
             }
-            if (options.wrong_checksum) {
-                send_fake_packet(sink, scratch, packet, parsed, payload,
-                                 FakePacketOptions{0, true, false});
+            if (options.wrong_checksum &&
+                !send_fake_packet(sink, scratch, packet, parsed, payload,
+                                  FakePacketOptions{0, true, false})) {
+                ++failures;
             }
-            if (options.wrong_seq) {
-                send_fake_packet(sink, scratch, packet, parsed, payload,
-                                 FakePacketOptions{0, false, true});
+            if (options.wrong_seq &&
+                !send_fake_packet(sink, scratch, packet, parsed, payload,
+                                  FakePacketOptions{0, false, true})) {
+                ++failures;
             }
         }
     }
+    return failures;
 }
 
 } // namespace sdp::win

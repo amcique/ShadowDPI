@@ -1,5 +1,6 @@
 #include "packet_engine.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -164,8 +165,10 @@ PacketEngine::TcpDataResult PacketEngine::process_tls_client_hello(
         bool allow_send = true;
         const std::uint8_t ttl = compute_fake_ttl(parsed, allow_send);
         if (allow_send) {
-            send_fake_requests(sink_, fake_scratch_, packet, parsed,
-                               config_.fake, ttl, true);
+            if (send_fake_requests(sink_, fake_scratch_, packet, parsed,
+                                   config_.fake, ttl, true) != 0) {
+                note_send_failure();
+            }
         }
     }
 
@@ -232,8 +235,10 @@ PacketEngine::TcpDataResult PacketEngine::process_http_request(
         bool allow_send = true;
         const std::uint8_t ttl = compute_fake_ttl(parsed, allow_send);
         if (allow_send) {
-            send_fake_requests(sink_, fake_scratch_, packet, parsed,
-                               config_.fake, ttl, false);
+            if (send_fake_requests(sink_, fake_scratch_, packet, parsed,
+                                   config_.fake, ttl, false) != 0) {
+                note_send_failure();
+            }
         }
     }
 
@@ -283,6 +288,9 @@ PacketAction PacketEngine::process_tcp_control(const ParsedPacket& parsed,
             parsed.tcp->SrcPort, parsed.tcp->DstPort, parsed.is_ipv6(), ttl);
     }
 
+    // The window-size step runs before the host name is known, so it cannot be
+    // scoped by the domain blacklist. It therefore applies to every connection
+    // on the handled ports; the documentation states this limitation.
     if (!config_.native_frag) {
         if (config_.http.fragment_enabled &&
             parsed.tcp->SrcPort == htons(kHttpPort)) {
@@ -312,6 +320,17 @@ PacketAction PacketEngine::process_udp_data(const ParsedPacket& parsed,
     }
 
     if (!outbound) {
+        if (!is_expected_dns_source(parsed)) {
+            if (DnsTracker::is_dns_packet(payload, false)) {
+                action.reinject = false;
+                if (logger_.verbose_enabled()) {
+                    logger_.verbose(
+                        "[DNS] dropping response from an unexpected source");
+                }
+            }
+            return action;
+        }
+
         const auto local_ip = destination_address(parsed);
         const std::uint16_t local_port = parsed.udp->DstPort;
         const auto redirect = dns_tracker_.handle_incoming(
@@ -362,6 +381,23 @@ PacketAction PacketEngine::process_udp_data(const ParsedPacket& parsed,
     }
 
     return action;
+}
+
+bool PacketEngine::is_expected_dns_source(
+    const ParsedPacket& parsed) const noexcept
+{
+    if (parsed.is_ipv4()) {
+        return config_.dns.v4_server &&
+               parsed.ipv4->SrcAddr == config_.dns.v4_server->words()[0] &&
+               parsed.udp->SrcPort == htons(config_.dns.v4_port);
+    }
+    if (parsed.is_ipv6()) {
+        return config_.dns.v6_server &&
+               ipv6_words(parsed.ipv6->SrcAddr) ==
+                   config_.dns.v6_server->words() &&
+               parsed.udp->SrcPort == htons(config_.dns.v6_port);
+    }
+    return false;
 }
 
 std::uint8_t PacketEngine::compute_fake_ttl(const ParsedPacket& parsed,
@@ -432,22 +468,27 @@ bool PacketEngine::send_fragments(const PacketBuffer& packet,
         return false;
     }
 
-    if (config_.reverse_frag) {
-        send_native_fragment(packet, parsed, fragment_size,
-                             FragmentPart::tail);
-        send_native_fragment(packet, parsed, fragment_size,
-                             FragmentPart::head);
-    }
-    else {
-        send_native_fragment(packet, parsed, fragment_size,
-                             FragmentPart::head);
-        send_native_fragment(packet, parsed, fragment_size,
-                             FragmentPart::tail);
+    const std::array<FragmentPart, 2> order =
+        config_.reverse_frag
+            ? std::array<FragmentPart, 2>{FragmentPart::tail,
+                                          FragmentPart::head}
+            : std::array<FragmentPart, 2>{FragmentPart::head,
+                                          FragmentPart::tail};
+
+    bool sent_any = false;
+    for (const auto part : order) {
+        if (!send_native_fragment(packet, parsed, fragment_size, part)) {
+            note_send_failure();
+            // If nothing reached the wire, let the caller reinject the
+            // original. A partial split must not duplicate the original.
+            return sent_any;
+        }
+        sent_any = true;
     }
     return true;
 }
 
-void PacketEngine::send_native_fragment(const PacketBuffer& packet,
+bool PacketEngine::send_native_fragment(const PacketBuffer& packet,
                                         const ParsedPacket& parsed,
                                         unsigned int fragment_size,
                                         FragmentPart part)
@@ -456,7 +497,7 @@ void PacketEngine::send_native_fragment(const PacketBuffer& packet,
     ParsedPacket fragment = rebase_packet(
         parsed, packet.data.data(), fragment_scratch_.data.data());
     if (!fragment.has_tcp_data()) {
-        return;
+        return true;
     }
 
     const UINT payload_length = fragment.payload_length;
@@ -465,13 +506,19 @@ void PacketEngine::send_native_fragment(const PacketBuffer& packet,
             fragment_size = 0;
         }
         else {
-            return;
+            return true;
         }
     }
 
     if (part == FragmentPart::head) {
         fragment_scratch_.length =
             packet.length - payload_length + fragment_size;
+        // FIN, URG and PSH describe the end of the original segment. Leaving
+        // them on the head fragment can close the connection before the tail
+        // arrives, so they stay on the tail only.
+        fragment.tcp->Fin = 0;
+        fragment.tcp->Urg = 0;
+        fragment.tcp->Psh = 0;
     }
     else {
         std::memmove(fragment.payload, fragment.payload + fragment_size,
@@ -487,7 +534,17 @@ void PacketEngine::send_native_fragment(const PacketBuffer& packet,
     recalculate_checksums(fragment_scratch_.data.data(),
                           fragment_scratch_.length,
                           fragment_scratch_.address);
-    sink_.send(fragment_scratch_);
+    return sink_.send(fragment_scratch_);
+}
+
+void PacketEngine::note_send_failure() noexcept
+{
+    ++send_failures_;
+    if (send_failures_ == 1 || send_failures_ % 1000 == 0) {
+        logger_.warning("cannot send packet (" +
+                        std::to_string(send_failures_) +
+                        " send failures)");
+    }
 }
 
 } // namespace sdp::win

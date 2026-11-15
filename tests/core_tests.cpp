@@ -63,6 +63,32 @@ void check(bool condition, std::string_view expression, int line)
     return result;
 }
 
+[[nodiscard]] std::vector<std::byte> make_dns_message(bool response,
+                                                      std::uint16_t id)
+{
+    std::vector<std::byte> message(12, std::byte{0});
+    message[0] = static_cast<std::byte>(id >> 8U);
+    message[1] = static_cast<std::byte>(id & 0xFFU);
+    message[2] = response ? std::byte{0x81} : std::byte{0x01};
+    message[3] = response ? std::byte{0x80} : std::byte{0x00};
+    message[5] = std::byte{0x01}; // QDCOUNT
+
+    for (const auto part : {std::string_view{"example"},
+                            std::string_view{"com"}}) {
+        message.push_back(static_cast<std::byte>(part.size()));
+        for (const char character : part) {
+            message.push_back(static_cast<std::byte>(
+                static_cast<unsigned char>(character)));
+        }
+    }
+    message.push_back(std::byte{0}); // end of QNAME
+    message.push_back(std::byte{0});
+    message.push_back(std::byte{1}); // QTYPE A
+    message.push_back(std::byte{0});
+    message.push_back(std::byte{1}); // QCLASS IN
+    return message;
+}
+
 [[nodiscard]] sdp::Config parse(std::initializer_list<std::string_view> arguments)
 {
     std::vector<std::string> storage;
@@ -133,13 +159,12 @@ void test_cli_options()
     CHECK(config.http.fragment_enabled);
     CHECK(config.http.fragment_size == 4);
     CHECK(config.http.persistent);
-    CHECK(!config.http.persistent_nowait);
+    CHECK(config.native_frag);
     CHECK(config.https.fragment_size == 40);
     CHECK(config.http.replace_host);
 
     config = parse({"-f", "2", "-n"});
     CHECK(config.http.persistent);
-    CHECK(config.http.persistent_nowait);
     CHECK(config.native_frag);
 
     config = parse({"--dns-addr", "8.8.8.8", "--dns-port", "5353",
@@ -184,6 +209,27 @@ void test_cli_options()
     CHECK(parse_throws({"--fake-gen", "0"}));
     CHECK(parse_throws({"--auto-ttl", "1-2"}));
     CHECK(parse_throws({"--preset", "10"}));
+}
+
+void test_preset_equivalence()
+{
+    const auto preset1 = parse({"-1"});
+    const auto expansion1 = parse({"-p", "-r", "-s", "-f", "2", "-k", "2",
+                                   "-n", "-e", "2"});
+    CHECK(preset1.block_passive == expansion1.block_passive);
+    CHECK(preset1.http.replace_host == expansion1.http.replace_host);
+    CHECK(preset1.http.remove_host_space ==
+          expansion1.http.remove_host_space);
+    CHECK(preset1.http.fragment_size == expansion1.http.fragment_size);
+    CHECK(preset1.https.fragment_size == expansion1.https.fragment_size);
+    CHECK(preset1.http.persistent == expansion1.http.persistent);
+    CHECK(preset1.native_frag == expansion1.native_frag);
+
+    const auto preset2 = parse({"-2"});
+    const auto expansion2 = parse({"-p", "-r", "-s", "-f", "2", "-k", "2",
+                                   "-n", "-e", "40"});
+    CHECK(preset2.https.fragment_size == expansion2.https.fragment_size);
+    CHECK(preset2.native_frag == expansion2.native_frag);
 }
 
 void test_blacklist()
@@ -268,6 +314,15 @@ void test_ttl_tracker()
     tracker.record_incoming(remote, local, 443, 50001, true, 55);
     CHECK(!tracker.lookup_outgoing(local, remote, 50001, 443, false).has_value());
     CHECK(tracker.lookup_outgoing(local, remote, 50001, 443, true).has_value());
+
+    // The map is capped under a SYN/ACK flood.
+    for (std::size_t index = 0; index <= sdp::TtlTracker::kMaxEntries;
+         ++index) {
+        tracker.record_incoming(
+            remote, local, static_cast<std::uint16_t>(1000 + (index % 60000)),
+            50000, false, 64);
+    }
+    CHECK(tracker.size() <= sdp::TtlTracker::kMaxEntries);
 }
 
 void test_dns_tracker()
@@ -276,16 +331,23 @@ void test_dns_tracker()
     const std::array<std::uint32_t, 4> local{0x0100007F, 0, 0, 0};
     const std::array<std::uint32_t, 4> resolver{0x08080808, 0, 0, 0};
 
-    auto query = to_buffer(std::string(16, '\0'));
-    query[2] = std::byte{0x01};
-    query[3] = std::byte{0x00};
+    const auto query = make_dns_message(false, 0x1234);
     CHECK(sdp::DnsTracker::is_dns_packet(query, true));
     CHECK(tracker.handle_outgoing(local, 53000, resolver, 53, query, false));
 
-    auto response = to_buffer(std::string(16, '\0'));
-    response[2] = std::byte{0x81};
-    response[3] = std::byte{0x80};
+    const auto response = make_dns_message(true, 0x1234);
     CHECK(sdp::DnsTracker::is_dns_packet(response, false));
+
+    // A wrong transaction ID must not consume the entry.
+    const auto wrong_id = make_dns_message(true, 0x9999);
+    CHECK(!tracker.handle_incoming(local, 53000, wrong_id, false).has_value());
+
+    // A wrong question must not consume the entry either.
+    auto wrong_question = response;
+    wrong_question[13] = std::byte{'E'};
+    wrong_question[19] = std::byte{'z'};
+    CHECK(!tracker.handle_incoming(local, 53000, wrong_question, false)
+               .has_value());
 
     const auto redirect =
         tracker.handle_incoming(local, 53000, response, false);
@@ -297,6 +359,17 @@ void test_dns_tracker()
     // Non-DNS payloads must not be tracked.
     auto random = to_buffer(std::string(16, '\x42'));
     CHECK(!tracker.handle_outgoing(local, 53001, resolver, 53, random, false));
+
+    // The map is capped under a flood.
+    for (std::size_t index = 0; index <= sdp::DnsTracker::kMaxEntries;
+         ++index) {
+        const auto flood_query = make_dns_message(
+            false, static_cast<std::uint16_t>(index));
+        CHECK(tracker.handle_outgoing(
+            local, static_cast<std::uint16_t>(1000 + (index % 60000)),
+            resolver, 53, flood_query, false));
+    }
+    CHECK(tracker.size() <= sdp::DnsTracker::kMaxEntries);
 }
 
 void test_http_helpers()
@@ -315,6 +388,29 @@ void test_http_helpers()
     CHECK(user_agent.has_value());
     CHECK(from_buffer(span.subspan(user_agent->value_offset,
                                    user_agent->value_length)) == "test");
+
+    // Header names are case-insensitive.
+    const auto lowercase = to_buffer(
+        "GET / HTTP/1.1\r\nhost: lowercase.example\r\n\r\n");
+    const auto lowercase_span =
+        std::span<const std::byte>{lowercase};
+    const auto lowercase_host =
+        sdp::find_header(lowercase_span, "\r\nHost: ");
+    CHECK(lowercase_host.has_value());
+    CHECK(from_buffer(lowercase_span.subspan(lowercase_host->value_offset,
+                                             lowercase_host->value_length)) ==
+          "lowercase.example");
+
+    // A header-looking sequence in the body must not win over the real header.
+    const auto body_decoy = to_buffer(
+        "POST / HTTP/1.1\r\nHost: real.example\r\n"
+        "Content-Length: 24\r\n\r\n\r\nHost: fake.example\r\n");
+    const auto body_span = std::span<const std::byte>{body_decoy};
+    const auto real_host = sdp::find_header(body_span, "\r\nHost: ");
+    CHECK(real_host.has_value());
+    CHECK(from_buffer(body_span.subspan(real_host->value_offset,
+                                        real_host->value_length)) ==
+          "real.example");
 
     bool fragmented = true;
     const auto method_end = sdp::find_http_method_end(payload, 2, &fragmented);
@@ -369,6 +465,16 @@ void test_tls_helpers()
     CHECK(sni->hostname == "example.com");
     CHECK(sni->offset + sni->hostname.size() <= hello.size());
 
+    // A malformed candidate before the real SNI must not abort the scan.
+    std::vector<std::byte> decoy(9, std::byte{0});
+    decoy[3] = std::byte{5};
+    decoy[5] = std::byte{3};
+    std::vector<std::byte> with_decoy = decoy;
+    with_decoy.insert(with_decoy.end(), hello.begin(), hello.end());
+    const auto decoy_sni = sdp::extract_sni(with_decoy);
+    CHECK(decoy_sni.has_value());
+    CHECK(decoy_sni->hostname == "example.com");
+
     const auto two_bytes = as_bytes(std::string_view{"\x16\x03", 2});
     CHECK(sdp::is_tls_client_hello_prefix(two_bytes));
     const auto garbage = as_bytes(std::string_view{"\x17\x03\x03", 3});
@@ -409,6 +515,8 @@ void test_filters()
     config.extra_ports.push_back(8080);
     filter = sdp::build_main_filter(config);
     CHECK(filter.find("8080") != std::string::npos);
+    CHECK(filter.find("tcp.Ack") != std::string::npos);
+    CHECK(filter.find("tcp.Syn") != std::string::npos);
 
     config.max_payload = 1200;
     filter = sdp::build_main_filter(config);
@@ -425,10 +533,13 @@ void test_filters()
     const std::string passive = sdp::build_passive_filter(config);
     CHECK(passive.find("tcp.Rst") != std::string::npos);
     CHECK(passive.find("ip.Id == 5") != std::string::npos);
+    CHECK(passive.find("(true") == std::string::npos);
+    CHECK(passive.find("ip.Id >= 0x0") != std::string::npos);
 
     const std::string quic = sdp::build_quic_filter();
     CHECK(quic.find("udp.DstPort == 443") != std::string::npos);
     CHECK(quic.find("udp.PayloadLength >= 1200") != std::string::npos);
+    CHECK(quic.find("0x6b3343cf") != std::string::npos);
 }
 
 void test_util()
@@ -465,6 +576,7 @@ int main()
 {
     test_cli_defaults();
     test_cli_options();
+    test_preset_equivalence();
     test_blacklist();
     test_auto_ttl();
     test_ttl_tracker();

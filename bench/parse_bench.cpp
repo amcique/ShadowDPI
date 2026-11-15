@@ -14,6 +14,7 @@
 #include <string_view>
 
 #include "packet.hpp"
+#include "windivert_api.hpp"
 
 namespace {
 
@@ -152,6 +153,12 @@ template <typename Function>
 
 int main(int argc, char** argv)
 {
+    std::string load_error;
+    if (!sdp::win::load_windivert_api(load_error)) {
+        std::cerr << load_error << '\n';
+        return 1;
+    }
+
     const bool check_requested =
         argc > 1 && std::string_view(argv[1]) == "--check";
 

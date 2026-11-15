@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "windivert_api.hpp"
+
 namespace sdp::win {
 
 DivertHandle::~DivertHandle()
@@ -30,8 +32,14 @@ std::optional<DivertHandle> DivertHandle::open(std::string_view filter,
                                                std::uint64_t flags,
                                                std::string& error)
 {
+    const auto& api = windivert_api();
+    if (api.open == nullptr) {
+        error = "WinDivert is not loaded";
+        return std::nullopt;
+    }
+
     const std::string filter_string{filter};
-    HANDLE handle = WinDivertOpen(filter_string.c_str(), layer, priority, flags);
+    HANDLE handle = api.open(filter_string.c_str(), layer, priority, flags);
     if (handle == INVALID_HANDLE_VALUE) {
         const DWORD error_code = GetLastError();
         error = format_error_message(error_code);
@@ -55,31 +63,41 @@ bool DivertHandle::valid() const noexcept
 bool DivertHandle::receive(PacketBuffer& packet) const noexcept
 {
     packet.length = 0;
-    return WinDivertRecv(handle_, packet.data.data(),
-                         static_cast<UINT>(packet.data.size()),
-                         &packet.length, &packet.address) != FALSE;
+    const auto& api = windivert_api();
+    if (api.recv == nullptr) {
+        return false;
+    }
+    return api.recv(handle_, packet.data.data(),
+                    static_cast<UINT>(packet.data.size()),
+                    &packet.length, &packet.address) != FALSE;
 }
 
 bool DivertHandle::send(const std::byte* data,
                         UINT length,
                         const WINDIVERT_ADDRESS& address) const noexcept
 {
-    return WinDivertSend(handle_, data, length, nullptr, &address) != FALSE;
+    const auto& api = windivert_api();
+    if (api.send == nullptr) {
+        return false;
+    }
+    return api.send(handle_, data, length, nullptr, &address) != FALSE;
 }
 
 void DivertHandle::shutdown() noexcept
 {
-    if (valid()) {
-        WinDivertShutdown(handle_, WINDIVERT_SHUTDOWN_BOTH);
+    const auto& api = windivert_api();
+    if (valid() && api.shutdown != nullptr) {
+        api.shutdown(handle_, WINDIVERT_SHUTDOWN_BOTH);
     }
 }
 
 void DivertHandle::close() noexcept
 {
-    if (valid()) {
-        WinDivertClose(handle_);
-        handle_ = INVALID_HANDLE_VALUE;
+    const auto& api = windivert_api();
+    if (valid() && api.close != nullptr) {
+        api.close(handle_);
     }
+    handle_ = INVALID_HANDLE_VALUE;
 }
 
 std::string last_error_message()

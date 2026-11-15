@@ -16,9 +16,11 @@
 #include "shadowdpi/log.hpp"
 #include "shadowdpi/types.hpp"
 #include "shadowdpi/util.hpp"
+#include "fake_sender.hpp"
 #include "packet.hpp"
 #include "packet_engine.hpp"
 #include "win_headers.hpp"
+#include "windivert_api.hpp"
 
 namespace {
 
@@ -97,9 +99,19 @@ void test_filters_compile()
     CHECK(main_filter.find("udp.SrcPort == 5353") != std::string::npos);
     CHECK(main_filter.find("udp.SrcPort == 5354") != std::string::npos);
 
+    const auto passive_filter = sdp::build_passive_filter(config);
+    CHECK(passive_filter.find("(true") == std::string::npos);
+    CHECK(passive_filter.find("ip.Id >= 0x0") != std::string::npos);
+    CHECK(passive_filter.find("ip.Id == 5") != std::string::npos);
+
+    const auto extra_ports = sdp::build_main_filter(config);
+    CHECK(extra_ports.find("tcp.Ack") != std::string::npos);
+    CHECK(extra_ports.find("tcp.PayloadLength > 0") != std::string::npos);
+
     const auto quic_filter = sdp::build_quic_filter();
     std::string error;
     CHECK(compile_filter(quic_filter, error));
+    CHECK(quic_filter.find("0x6b3343cf") != std::string::npos);
 }
 
 using Buffer = std::array<std::byte, 256>;
@@ -113,16 +125,21 @@ struct RecordedPacket {
 /// Captures every packet the engine generates instead of sending it.
 class RecordingSink final : public sdp::win::PacketSink {
 public:
-    void send(const sdp::win::PacketBuffer& packet) override
+    bool send(const sdp::win::PacketBuffer& packet) override
     {
+        if (fail_sends) {
+            return false;
+        }
         RecordedPacket recorded;
         recorded.data.assign(packet.data.begin(),
                              packet.data.begin() + packet.length);
         recorded.length = packet.length;
         recorded.address = packet.address;
         packets.push_back(std::move(recorded));
+        return true;
     }
 
+    bool fail_sends{false};
     std::vector<RecordedPacket> packets;
 };
 
@@ -338,20 +355,47 @@ void make_udp_payload_packet(sdp::win::PacketBuffer& packet,
     std::memcpy(packet.data.data() + 28, payload.data(), payload_size);
 }
 
-std::array<std::byte, 20> dns_query_payload()
+std::array<std::byte, 29> make_dns_payload(bool response)
 {
-    std::array<std::byte, 20> payload{};
+    std::array<std::byte, 29> payload{};
     payload[0] = std::byte{0x12}; // transaction ID
     payload[1] = std::byte{0x34};
+    payload[2] = response ? std::byte{0x81} : std::byte{0x01};
+    payload[3] = response ? std::byte{0x80} : std::byte{0x00};
+    payload[4] = std::byte{0x00};
+    payload[5] = std::byte{0x01}; // QDCOUNT
+
+    constexpr std::string_view example = "example";
+    constexpr std::string_view com = "com";
+    payload[12] = std::byte{static_cast<unsigned char>(example.size())};
+    for (std::size_t index = 0; index < example.size(); ++index) {
+        payload[13 + index] = static_cast<std::byte>(
+            static_cast<unsigned char>(example[index]));
+    }
+
+    const std::size_t com_offset = 13 + example.size();
+    payload[com_offset] =
+        std::byte{static_cast<unsigned char>(com.size())};
+    for (std::size_t index = 0; index < com.size(); ++index) {
+        payload[com_offset + 1 + index] = static_cast<std::byte>(
+            static_cast<unsigned char>(com[index]));
+    }
+    payload[com_offset + 1 + com.size()] = std::byte{0x00};
+
+    const std::size_t type_offset = com_offset + 2 + com.size();
+    payload[type_offset + 1] = std::byte{0x01};     // QTYPE A
+    payload[type_offset + 3] = std::byte{0x01};     // QCLASS IN
     return payload;
 }
 
-std::array<std::byte, 20> dns_response_payload()
+std::array<std::byte, 29> dns_query_payload()
 {
-    auto payload = dns_query_payload();
-    payload[2] = std::byte{0x81}; // response + recursion desired
-    payload[3] = std::byte{0x80};
-    return payload;
+    return make_dns_payload(false);
+}
+
+std::array<std::byte, 29> dns_response_payload()
+{
+    return make_dns_payload(true);
 }
 
 sdp::win::ParsedPacket parse_packet_buffer(sdp::win::PacketBuffer& packet)
@@ -887,6 +931,67 @@ void test_engine_native_fragments()
     CHECK(ntohl(tail.tcp->SeqNum) == 1010);
 }
 
+void test_engine_fragment_flags()
+{
+    sdp::Config config;
+    config.native_frag = true;
+    config.http.fragment_enabled = true;
+    config.http.fragment_size = 10;
+    config.http.persistent = true;
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    const auto request = byte_string(
+        "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+    sdp::win::PacketBuffer packet;
+    make_tcp_payload_packet(packet, true, 50000, 80, request);
+
+    auto* tcp = reinterpret_cast<PWINDIVERT_TCPHDR>(packet.data.data() + 20);
+    tcp->Fin = 1;
+    tcp->Urg = 1;
+    tcp->Psh = 1;
+    tcp->UrgPtr = htons(3);
+
+    const auto action = engine.process(packet);
+    CHECK(!action.reinject);
+    CHECK(sink.packets.size() == 2);
+
+    auto head = parse_recorded(sink.packets[0]);
+    auto tail = parse_recorded(sink.packets[1]);
+    CHECK(head.tcp->Fin == 0);
+    CHECK(head.tcp->Urg == 0);
+    CHECK(head.tcp->Psh == 0);
+    CHECK(tail.tcp->Fin == 1);
+    CHECK(tail.tcp->Urg == 1);
+    CHECK(tail.tcp->Psh == 1);
+}
+
+void test_engine_send_failure()
+{
+    sdp::Config config;
+    config.native_frag = true;
+    config.http.fragment_enabled = true;
+    config.http.fragment_size = 10;
+    config.http.persistent = true;
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sink.fail_sends = true;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    const auto request = byte_string(
+        "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+    sdp::win::PacketBuffer packet;
+    make_tcp_payload_packet(packet, true, 50000, 80, request);
+
+    const auto action = engine.process(packet);
+    // Nothing reached the wire, so the original packet is reinjected.
+    CHECK(action.reinject);
+    CHECK(sink.packets.empty());
+}
+
 void test_engine_fake_packet()
 {
     sdp::Config config;
@@ -923,6 +1028,25 @@ void test_engine_fake_packet()
                       expected_payload.size()) == 0);
 }
 
+void test_fake_sender_send_failure()
+{
+    const auto request =
+        byte_string("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+    sdp::win::PacketBuffer packet;
+    make_tcp_payload_packet(packet, true, 50000, 80, request);
+    const auto parsed = parse_packet_buffer(packet);
+
+    RecordingSink sink;
+    sink.fail_sends = true;
+    sdp::win::PacketBuffer scratch;
+
+    const bool sent = sdp::win::send_fake_packet(
+        sink, scratch, packet, parsed, sdp::default_http_fake(),
+        sdp::win::FakePacketOptions{5, false, false});
+    CHECK(!sent);
+    CHECK(sink.packets.empty());
+}
+
 void test_engine_dns_redirect()
 {
     sdp::Config config;
@@ -947,9 +1071,37 @@ void test_engine_dns_redirect()
     CHECK(ntohs(parsed.udp->DstPort) == 5353);
 
     const auto response = dns_response_payload();
-    sdp::win::PacketBuffer inbound;
-    make_udp_payload_packet(inbound, false, ipv4_address(8, 8, 8, 8),
+
+    // A response from the wrong source must not consume the tracker entry.
+    sdp::win::PacketBuffer wrong_source;
+    make_udp_payload_packet(wrong_source, false, ipv4_address(8, 8, 8, 8),
                             ipv4_address(192, 168, 1, 2), 53, 53000,
+                            response);
+    CHECK(!engine.process(wrong_source).reinject);
+
+    // A response with the wrong transaction ID is dropped and the entry stays.
+    auto wrong_id = response;
+    wrong_id[0] = std::byte{0x99};
+    sdp::win::PacketBuffer mismatched;
+    make_udp_payload_packet(mismatched, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
+                            wrong_id);
+    CHECK(!engine.process(mismatched).reinject);
+
+    // A response with the wrong question is dropped and the entry stays.
+    auto wrong_question = response;
+    wrong_question[13] = std::byte{'E'}; // "Example.com" is fine...
+    wrong_question[19] = std::byte{'z'}; // ...but this is not the same name.
+    sdp::win::PacketBuffer wrong_name;
+    make_udp_payload_packet(wrong_name, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
+                            wrong_question);
+    CHECK(!engine.process(wrong_name).reinject);
+
+    // The real response from the configured resolver is accepted.
+    sdp::win::PacketBuffer inbound;
+    make_udp_payload_packet(inbound, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
                             response);
 
     const auto incoming_action = engine.process(inbound);
@@ -963,8 +1115,8 @@ void test_engine_dns_redirect()
 
     // The tracker entry was consumed, so a second response is dropped.
     sdp::win::PacketBuffer unmatched;
-    make_udp_payload_packet(unmatched, false, ipv4_address(8, 8, 8, 8),
-                            ipv4_address(192, 168, 1, 2), 53, 53000,
+    make_udp_payload_packet(unmatched, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
                             response);
     const auto unmatched_action = engine.process(unmatched);
     CHECK(!unmatched_action.reinject);
@@ -1076,12 +1228,23 @@ void test_copy_packet()
     CHECK(std::memcmp(destination.data.data(), source.data.data(),
                       source.length) == 0);
     CHECK(destination.data[100] == std::byte{0x7f});
+
+    // A future caller must not leave a logical length larger than the buffer.
+    source.length = static_cast<UINT>(sdp::kMaxPacketSize + 1);
+    sdp::win::copy_packet(destination, source);
+    CHECK(destination.length == sdp::kMaxPacketSize);
 }
 
 } // namespace
 
 int main()
 {
+    std::string load_error;
+    if (!sdp::win::load_windivert_api(load_error)) {
+        std::cerr << load_error << '\n';
+        return 1;
+    }
+
     test_filters_compile();
     test_filter_matching();
     test_packet_parsing();
@@ -1090,7 +1253,10 @@ int main()
     test_packet_parsing_fuzz();
     test_engine_http_rewrites();
     test_engine_native_fragments();
+    test_engine_fragment_flags();
+    test_engine_send_failure();
     test_engine_fake_packet();
+    test_fake_sender_send_failure();
     test_engine_dns_redirect();
     test_engine_inbound_window_size();
     test_engine_passive_dpi();

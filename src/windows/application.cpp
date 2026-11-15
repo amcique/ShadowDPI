@@ -1,7 +1,10 @@
 #include "application.hpp"
 
+#include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -20,6 +23,7 @@
 #include "packet.hpp"
 #include "packet_engine.hpp"
 #include "win_headers.hpp"
+#include "windivert_api.hpp"
 
 namespace sdp::win {
 namespace {
@@ -43,13 +47,21 @@ public:
     {
     }
 
-    void send(const PacketBuffer& packet) override
+    bool send(const PacketBuffer& packet) override
     {
-        (void)handle_.send(packet.data.data(), packet.length, packet.address);
+        return handle_.send(packet.data.data(), packet.length, packet.address);
     }
 
 private:
     DivertHandle& handle_;
+};
+
+/// Serializes callback lifetime with Application destruction. The stop callback
+/// may run on a console or service control thread, so destruction must wait for
+/// an in-flight callback before the object goes away.
+struct StopGate {
+    std::mutex mutex;
+    bool active{true};
 };
 
 } // namespace
@@ -64,6 +76,8 @@ public:
     {
     }
 
+    ~Application();
+
     int run();
 
 private:
@@ -74,10 +88,11 @@ private:
     bool open_filters();
     void write_ready_file() const;
     void shutdown_filters() noexcept;
-    void loop();
+    [[nodiscard]] int loop();
 
     void process(PacketBuffer& packet);
-    void reinject(PacketBuffer& packet, const PacketAction& action) const;
+    void reinject(PacketBuffer& packet, const PacketAction& action);
+    void note_send_failure();
     bool open_drop_filter(std::string_view filter,
                           std::string_view description);
 
@@ -85,9 +100,21 @@ private:
     Logger logger_;
     DivertHandle main_handle_;
     std::vector<DivertHandle> drop_handles_;
+    std::mutex handles_mutex_;
+    std::shared_ptr<StopGate> stop_gate_{std::make_shared<StopGate>()};
     DivertSink sink_;
     PacketEngine engine_;
+    std::uint64_t send_failures_{0};
 };
+
+Application::~Application()
+{
+    {
+        std::lock_guard lock{stop_gate_->mutex};
+        stop_gate_->active = false;
+    }
+    ShutdownCoordinator::instance().set_stop_callback({});
+}
 
 int Application::run()
 {
@@ -118,12 +145,21 @@ int Application::run()
     }
 
     install_console_stop_handler();
-    ShutdownCoordinator::instance().set_stop_callback(
-        [this] { shutdown_filters(); });
 
     if (!open_filters()) {
         return 1;
     }
+
+    // Register only after the handles exist, so a stop request cannot race
+    // with their creation. The gate keeps the callback from touching a
+    // destroyed Application.
+    const auto gate = stop_gate_;
+    ShutdownCoordinator::instance().set_stop_callback([this, gate] {
+        std::lock_guard lock{gate->mutex};
+        if (gate->active) {
+            shutdown_filters();
+        }
+    });
 
     write_ready_file();
 
@@ -133,11 +169,12 @@ int Application::run()
     }
 
     logger_.info("Filter activated, ShadowDPI is now running!");
-    loop();
+    const int result = loop();
 
     shutdown_filters();
-    logger_.info("ShadowDPI stopped.");
-    return 0;
+    logger_.info(result == 0 ? "ShadowDPI stopped."
+                             : "ShadowDPI stopped after an error.");
+    return result;
 }
 
 void Application::print_banner() const
@@ -175,8 +212,6 @@ void Application::print_summary() const
     print_setting("Additional space", yes_no(config_.http.extra_space));
     print_setting("Mix Host case", yes_no(config_.http.mixed_case_host));
     print_setting("HTTP all ports", yes_no(config_.http.all_ports));
-    print_setting("HTTP persistent nowait",
-                  yes_no(config_.http.persistent_nowait));
     print_setting("DNS redirect", yes_no(config_.dns.v4_server.has_value()));
     print_setting("DNSv6 redirect",
                   yes_no(config_.dns.v6_server.has_value()));
@@ -232,7 +267,11 @@ void Application::load_blacklists()
 
 void Application::flush_dns_cache()
 {
-    HMODULE dnsapi = LoadLibraryA("dnsapi.dll");
+    HMODULE dnsapi =
+        LoadLibraryExA("dnsapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (dnsapi == nullptr && GetLastError() == ERROR_INVALID_PARAMETER) {
+        dnsapi = LoadLibraryA("dnsapi.dll");
+    }
     if (dnsapi == nullptr) {
         logger_.warning("cannot load dnsapi.dll to flush the DNS cache");
         return;
@@ -258,6 +297,8 @@ bool Application::open_drop_filter(std::string_view filter,
                       " filter: " + error);
         return false;
     }
+
+    std::lock_guard lock{handles_mutex_};
     drop_handles_.push_back(std::move(*handle));
     return true;
 }
@@ -265,6 +306,12 @@ bool Application::open_drop_filter(std::string_view filter,
 bool Application::open_filters()
 {
     logger_.info("Opening filters...");
+
+    std::string load_error;
+    if (!load_windivert_api(load_error)) {
+        logger_.error(load_error);
+        return false;
+    }
 
     if (config_.block_passive &&
         !open_drop_filter(build_passive_filter(config_), "passive DPI")) {
@@ -284,6 +331,8 @@ bool Application::open_filters()
         logger_.error("cannot open main filter: " + error);
         return false;
     }
+
+    std::lock_guard lock{handles_mutex_};
     main_handle_ = std::move(*main_handle);
     return true;
 }
@@ -292,6 +341,7 @@ void Application::shutdown_filters() noexcept
 {
     // Only shut the handles down; destroying them here would race with the
     // packet loop if the request comes from a system callback thread.
+    std::lock_guard lock{handles_mutex_};
     for (auto& handle : drop_handles_) {
         handle.shutdown();
     }
@@ -320,20 +370,21 @@ void Application::write_ready_file() const
     }
 }
 
-void Application::loop()
+int Application::loop()
 {
     PacketBuffer packet;
     while (!ShutdownCoordinator::instance().stop_requested()) {
         if (!main_handle_.receive(packet)) {
-            if (!ShutdownCoordinator::instance().stop_requested()) {
-                logger_.error("error receiving packet: " +
-                              last_error_message());
+            if (ShutdownCoordinator::instance().stop_requested()) {
+                return 0;
             }
-            break;
+            logger_.error("error receiving packet: " + last_error_message());
+            return 1;
         }
 
         process(packet);
     }
+    return 0;
 }
 
 void Application::process(PacketBuffer& packet)
@@ -345,13 +396,26 @@ void Application::process(PacketBuffer& packet)
 }
 
 void Application::reinject(PacketBuffer& packet,
-                           const PacketAction& action) const
+                           const PacketAction& action)
 {
     if (action.recalculate_checksums) {
         recalculate_checksums(packet.data.data(), packet.length,
                               packet.address);
     }
-    (void)main_handle_.send(packet.data.data(), packet.length, packet.address);
+    if (!main_handle_.send(packet.data.data(), packet.length,
+                           packet.address)) {
+        note_send_failure();
+    }
+}
+
+void Application::note_send_failure()
+{
+    ++send_failures_;
+    if (send_failures_ == 1 || send_failures_ % 1000 == 0) {
+        logger_.warning("cannot reinject packet: " + last_error_message() +
+                        " (" + std::to_string(send_failures_) +
+                        " send failures)");
+    }
 }
 
 int run_application(int argc, char* argv[])

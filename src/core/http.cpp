@@ -21,15 +21,30 @@ constexpr std::array<std::string_view, 7> kHttpMethods = {
     "GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ",
 };
 
-[[nodiscard]] bool byte_matches(std::byte value, char character) noexcept
+[[nodiscard]] unsigned char fold_ascii(unsigned char value) noexcept
 {
-    return std::to_integer<unsigned char>(value) ==
-           static_cast<unsigned char>(character);
+    if (value >= 'A' && value <= 'Z') {
+        return static_cast<unsigned char>(value - 'A' + 'a');
+    }
+    return value;
+}
+
+[[nodiscard]] bool byte_matches(std::byte value,
+                                char character,
+                                bool case_insensitive) noexcept
+{
+    const auto left = std::to_integer<unsigned char>(value);
+    const auto right = static_cast<unsigned char>(character);
+    if (case_insensitive) {
+        return fold_ascii(left) == fold_ascii(right);
+    }
+    return left == right;
 }
 
 [[nodiscard]] std::optional<std::size_t> find_bytes(
     std::span<const std::byte> haystack,
-    std::string_view needle)
+    std::string_view needle,
+    bool case_insensitive = false)
 {
     if (needle.empty() || haystack.size() < needle.size()) {
         return std::nullopt;
@@ -38,8 +53,8 @@ constexpr std::array<std::string_view, 7> kHttpMethods = {
     const auto iterator = std::search(
         haystack.begin(), haystack.end(),
         needle.begin(), needle.end(),
-        [](std::byte value, char character) {
-            return byte_matches(value, character);
+        [case_insensitive](std::byte value, char character) {
+            return byte_matches(value, character, case_insensitive);
         });
 
     if (iterator == haystack.end()) {
@@ -55,7 +70,7 @@ constexpr std::array<std::string_view, 7> kHttpMethods = {
         return false;
     }
     for (std::size_t index = 0; index < needle.size(); ++index) {
-        if (!byte_matches(haystack[index], needle[index])) {
+        if (!byte_matches(haystack[index], needle[index], false)) {
             return false;
         }
     }
@@ -68,17 +83,26 @@ std::optional<HeaderLocation> find_header(
     std::span<const std::byte> payload,
     std::string_view header_name)
 {
-    const auto name_offset = find_bytes(payload, header_name);
+    // Header names are case-insensitive and only the header block may be
+    // inspected; a "\r\nHost: " sequence in a request body is not a header.
+    const auto header_end = find_bytes(payload, "\r\n\r\n");
+    const std::size_t search_length =
+        header_end ? std::min(payload.size(), *header_end + 4)
+                   : payload.size();
+    const auto header_block = payload.first(search_length);
+
+    const auto name_offset = find_bytes(header_block, header_name, true);
     if (!name_offset) {
         return std::nullopt;
     }
 
     const std::size_t value_offset = *name_offset + header_name.size();
-    if (value_offset > payload.size()) {
+    if (value_offset > header_block.size()) {
         return std::nullopt;
     }
 
-    const auto line_end = find_bytes(payload.subspan(value_offset), "\r\n");
+    const auto line_end =
+        find_bytes(header_block.subspan(value_offset), "\r\n");
     if (!line_end) {
         return std::nullopt;
     }
@@ -111,7 +135,7 @@ std::optional<std::size_t> find_http_method_end(
         if (payload.size() >= method.size()) {
             bool matches = true;
             for (std::size_t index = 0; index < method.size(); ++index) {
-                if (!byte_matches(payload[index], method[index])) {
+                if (!byte_matches(payload[index], method[index], false)) {
                     matches = false;
                     break;
                 }
@@ -129,7 +153,7 @@ std::optional<std::size_t> find_http_method_end(
             const auto suffix = method.substr(fragment_size);
             bool matches = true;
             for (std::size_t index = 0; index < suffix.size(); ++index) {
-                if (!byte_matches(payload[index], suffix[index])) {
+                if (!byte_matches(payload[index], suffix[index], false)) {
                     matches = false;
                     break;
                 }

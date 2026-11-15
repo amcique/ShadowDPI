@@ -67,16 +67,19 @@ private:
                                                    bool outbound);
     [[nodiscard]] PacketAction process_udp_data(const ParsedPacket& parsed,
                                                 bool outbound);
+    [[nodiscard]] bool is_expected_dns_source(
+        const ParsedPacket& parsed) const noexcept;
 
     [[nodiscard]] std::uint8_t compute_fake_ttl(const ParsedPacket& parsed,
                                                 bool& allow_send);
     bool send_fragments(const PacketBuffer& packet,
                         const ParsedPacket& parsed,
                         const TcpDataResult& result);
-    void send_native_fragment(const PacketBuffer& packet,
+    bool send_native_fragment(const PacketBuffer& packet,
                               const ParsedPacket& parsed,
                               unsigned int fragment_size,
                               FragmentPart part);
+    void note_send_failure() noexcept;
 
     const Config& config_;
     const Logger& logger_;
@@ -87,6 +90,7 @@ private:
     DnsTracker dns_tracker_;
     PacketBuffer fake_scratch_;
     PacketBuffer fragment_scratch_;
+    std::uint64_t send_failures_{0};
 };
 
 } // namespace sdp::win

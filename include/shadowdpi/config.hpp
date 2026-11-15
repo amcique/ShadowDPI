@@ -20,7 +20,6 @@ struct HttpOptions {
     bool fragment_enabled{false};
     std::uint16_t fragment_size{0};
     bool persistent{false};
-    bool persistent_nowait{false};
     bool replace_host{false};
     bool remove_host_space{false};
     bool extra_space{false};

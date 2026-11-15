@@ -33,6 +33,18 @@ else()
 endif()
 
 option(SHADOWDPI_BUILD_TESTS "Build the test suites and the parser benchmark" ON)
+option(SHADOWDPI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(SHADOWDPI_REQUIRE_WINDIVERT_RUNTIME
+    "Fail configuration when WinDivert.dll or WinDivert64.sys is missing" OFF)
+
+if(SHADOWDPI_BUILD_TESTS)
+    enable_testing()
+endif()
+
+set(SHADOWDPI_WARNING_FLAGS /W4 /permissive- /Zc:__cplusplus /utf-8)
+if(SHADOWDPI_WARNINGS_AS_ERRORS)
+    list(APPEND SHADOWDPI_WARNING_FLAGS /WX)
+endif()
 
 set(WINDIVERT_ROOT "$ENV{WINDIVERT_ROOT}" CACHE PATH
     "Root directory of the WinDivert distribution")
@@ -62,7 +74,8 @@ target_compile_features(shadowdpi_core PUBLIC cxx_std_20)
 target_link_libraries(shadowdpi_core PUBLIC ws2_32)
 
 target_compile_options(shadowdpi_core PRIVATE
-    /W4 /permissive- /Zc:__cplusplus /utf-8
+    ${SHADOWDPI_WARNING_FLAGS}
+    /guard:cf /sdl
 )
 
 # ---------------------------------------------------------------------------
@@ -96,6 +109,19 @@ if(NOT WINDIVERT_INCLUDE_DIR OR NOT WINDIVERT_LIBRARY)
         "WinDivert was not found. Set WINDIVERT_ROOT to the extracted "
         "WinDivert distribution (it must contain include/windivert.h and "
         "${WINDIVERT_ARCH}/WinDivert.lib).")
+endif()
+
+if(NOT WINDIVERT_DLL OR NOT WINDIVERT_SYS)
+    if(SHADOWDPI_REQUIRE_WINDIVERT_RUNTIME)
+        message(FATAL_ERROR
+            "WinDivert runtime files are required but were not found. The "
+            "build needs both WinDivert.dll and ${WINDIVERT_SYS_NAME} next to "
+            "the executable. Set WINDIVERT_ROOT to a complete distribution.")
+    endif()
+    message(WARNING
+        "WinDivert runtime files are missing from the distribution: "
+        "the executable will build but cannot start without "
+        "WinDivert.dll and ${WINDIVERT_SYS_NAME}.")
 endif()
 
 # Resource paths are generated with absolute paths so the RC compiler does
@@ -141,6 +167,7 @@ add_executable(shadowdpi
     src/windows/packet_engine.cpp
     src/windows/divert.cpp
     src/windows/fake_sender.cpp
+    src/windows/windivert_api.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi.rc"
 )
 
@@ -149,16 +176,19 @@ target_include_directories(shadowdpi PRIVATE
     "${WINDIVERT_INCLUDE_DIR}"
 )
 
+# WinDivert is resolved at run time by windivert_api.cpp, so the executable has
+# no static import of WinDivert.dll that the loader could resolve before main().
 target_link_libraries(shadowdpi PRIVATE
     shadowdpi_core
-    "${WINDIVERT_LIBRARY}"
 )
 
 target_compile_features(shadowdpi PRIVATE cxx_std_20)
 
 target_compile_options(shadowdpi PRIVATE
-    /W4 /permissive- /Zc:__cplusplus /utf-8
+    ${SHADOWDPI_WARNING_FLAGS}
+    /guard:cf /sdl
 )
+
 target_link_options(shadowdpi PRIVATE
     /DYNAMICBASE /NXCOMPAT /MANIFEST:NO
 )
@@ -193,12 +223,11 @@ endif()
 # packet.cpp and needs WinDivert's user-mode helper DLL next to the
 # executable. Neither needs the driver or administrator privileges.
 if(SHADOWDPI_BUILD_TESTS)
-    enable_testing()
-
     function(shadowdpi_add_packet_tool name)
         add_executable(${name}
             ${ARGN}
             src/windows/packet.cpp
+            src/windows/windivert_api.cpp
         )
         target_include_directories(${name} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/windows"
@@ -212,7 +241,7 @@ if(SHADOWDPI_BUILD_TESTS)
         target_compile_features(${name} PRIVATE cxx_std_20)
 
         target_compile_options(${name} PRIVATE
-            /W4 /permissive- /Zc:__cplusplus /utf-8
+            ${SHADOWDPI_WARNING_FLAGS}
         )
 
         if(WINDIVERT_DLL)
@@ -243,14 +272,12 @@ endif()
 # Tests
 # ---------------------------------------------------------------------------
 if(SHADOWDPI_BUILD_TESTS)
-    enable_testing()
-
     add_executable(shadowdpi_core_tests tests/core_tests.cpp)
     target_link_libraries(shadowdpi_core_tests PRIVATE shadowdpi_core)
     target_compile_features(shadowdpi_core_tests PRIVATE cxx_std_20)
 
     target_compile_options(shadowdpi_core_tests PRIVATE
-        /W4 /permissive- /Zc:__cplusplus /utf-8
+        ${SHADOWDPI_WARNING_FLAGS}
     )
 
     add_test(NAME core COMMAND shadowdpi_core_tests)

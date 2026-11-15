@@ -2,6 +2,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -33,6 +34,12 @@ public:
         std::uint8_t min_hops,
         std::uint8_t max_ttl);
 
+    /// Upper bound on tracked connections. SYN/ACK floods must not grow the
+    /// map without limit.
+    static constexpr std::size_t kMaxEntries{8192};
+
+    [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+
 private:
     struct Endpoint {
         std::array<std::uint32_t, 4> ip{};
@@ -59,13 +66,15 @@ private:
     };
 
     using Clock = std::chrono::steady_clock;
-    static constexpr std::chrono::seconds kCleanupInterval{30};
+    static constexpr std::chrono::seconds kCleanupInterval{1};
     static constexpr std::chrono::seconds kEntryLifetime{30};
+    static constexpr std::size_t kCleanupBatch{512};
 
     void cleanup();
 
     std::unordered_map<Key, Entry, KeyHash> entries_;
     std::optional<Clock::time_point> last_cleanup_;
+    std::size_t next_bucket_{0};
 };
 
 } // namespace sdp

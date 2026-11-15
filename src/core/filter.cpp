@@ -44,7 +44,7 @@ constexpr std::string_view kMainFilterTemplate =
 
 constexpr std::string_view kPassiveFilterTemplate =
     "inbound and ip and tcp and !impostor and !loopback and "
-    "(true #IPID#) and "
+    "((ipv6 or (ip.Id >= 0x0 and ip.Id <= 0xF)) #IPID#) and "
     "(tcp.SrcPort == 443 or tcp.SrcPort == 80) and tcp.Rst and "
     "#NO_LOCALNETS_V4_SRC#";
 
@@ -120,8 +120,11 @@ std::string build_main_filter(const Config& config)
             continue;
         }
         filter += " or (tcp and !impostor and !loopback #MAXPAYLOADSIZE# and "
+                  "tcp.Ack and "
+                  "((tcp.DstPort == " + std::to_string(port) +
+                  " and tcp.PayloadLength > 0) or "
                   "(tcp.SrcPort == " + std::to_string(port) +
-                  " or tcp.DstPort == " + std::to_string(port) + "))";
+                  " and (tcp.PayloadLength > 0 or tcp.Syn))))";
     }
 
     filter = replace_all(std::move(filter), "#MAXPAYLOADSIZE#",
@@ -159,7 +162,9 @@ std::string build_quic_filter()
 {
     return "outbound and !impostor and !loopback and udp "
            "and udp.DstPort == 443 and udp.PayloadLength >= 1200 "
-           "and udp.Payload[0] >= 0xC0 and udp.Payload32[1b] == 0x01";
+           "and udp.Payload[0] >= 0xC0 and "
+           "(udp.Payload32[1b] == 0x01 or "
+           "udp.Payload32[1b] == 0x6b3343cf)";
 }
 
 } // namespace sdp

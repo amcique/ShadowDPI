@@ -100,7 +100,6 @@ void enable_native(Config& config)
 {
     config.native_frag = true;
     config.http.persistent = true;
-    config.http.persistent_nowait = true;
 }
 
 void parse_auto_ttl(Config& config, std::optional<std::string_view> value)
@@ -173,8 +172,9 @@ void apply_long_option(Config& config,
         config.native_frag = true;
     }
     else if (name == "http-keepalive-nowait") {
+        // Compatibility alias: ShadowDPI processes keep-alive requests
+        // immediately and never waits for the first ACK.
         config.http.persistent = true;
-        config.http.persistent_nowait = true;
         config.native_frag = true;
     }
     else if (name == "https-fragment") {
@@ -370,7 +370,6 @@ void apply_short_option(Config& config, char option)
         break;
     case 'n':
         config.http.persistent = true;
-        config.http.persistent_nowait = true;
         config.native_frag = true;
         break;
     case 'v':
@@ -524,7 +523,7 @@ std::string help_text()
         "HTTP manipulation:\n"
         "  --http-fragment <size>         fragment HTTP requests (-f <size>)\n"
         "  --http-keepalive-fragment <n>  fragment persistent HTTP (-k <n>)\n"
-        "  --http-keepalive-nowait        do not wait for the first ACK (-n)\n"
+        "  --http-keepalive-nowait        handle keep-alive HTTP immediately (-n)\n"
         "  -r, --http-host-replace        replace Host with hoSt\n"
         "  -s, --http-host-no-space       remove the space after Host:\n"
         "  -a, --http-extra-space         add space between method and URI\n"

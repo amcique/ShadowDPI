@@ -51,14 +51,16 @@ std::optional<SniLocation> extract_sni(std::span<const std::byte> payload)
 
         const std::size_t hostname_length = data[pointer + 8];
         if (hostname_length < 3 || hostname_length > kMaxHostLength) {
-            return std::nullopt;
+            // A decoy pattern before the real SNI must not stop the scan.
+            continue;
         }
 
         const std::size_t hostname_offset = pointer + 9;
         if (hostname_offset + hostname_length > size) {
-            return std::nullopt;
+            continue;
         }
 
+        bool valid_candidate = true;
         for (std::size_t index = 0; index < hostname_length; ++index) {
             const unsigned char character = data[hostname_offset + index];
             const bool valid =
@@ -67,8 +69,12 @@ std::optional<SniLocation> extract_sni(std::span<const std::byte> payload)
                 (character >= 'A' && character <= 'Z') ||
                 character == '.' || character == '-';
             if (!valid) {
-                return std::nullopt;
+                valid_candidate = false;
+                break;
             }
+        }
+        if (!valid_candidate) {
+            continue;
         }
 
         return SniLocation{

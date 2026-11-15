@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstring>
 
+#include "windivert_api.hpp"
+
 namespace sdp::win {
 namespace {
 
@@ -153,13 +155,17 @@ void rebase_pointer(T*& pointer,
 [[nodiscard]] ParsedPacket parse_packet_with_helper(std::byte* data,
                                                     UINT length) noexcept
 {
+    const auto& api = windivert_api();
+    if (api.helper_parse == nullptr) {
+        return ParsedPacket{};
+    }
+
     ParsedPacket parsed;
     PVOID payload = nullptr;
     UINT payload_length = 0;
-    if (!WinDivertHelperParsePacket(data, length, &parsed.ipv4, &parsed.ipv6,
-                                    nullptr, nullptr, nullptr, &parsed.tcp,
-                                    &parsed.udp, &payload, &payload_length,
-                                    nullptr, nullptr)) {
+    if (!api.helper_parse(data, length, &parsed.ipv4, &parsed.ipv6, nullptr,
+                          nullptr, nullptr, &parsed.tcp, &parsed.udp, &payload,
+                          &payload_length, nullptr, nullptr)) {
         return ParsedPacket{};
     }
 
@@ -173,10 +179,10 @@ void rebase_pointer(T*& pointer,
 void copy_packet(PacketBuffer& destination,
                  const PacketBuffer& source) noexcept
 {
-    destination.length = source.length;
-    destination.address = source.address;
     const auto bytes = std::min<std::size_t>(source.length,
                                              destination.data.size());
+    destination.length = static_cast<UINT>(bytes);
+    destination.address = source.address;
     std::memcpy(destination.data.data(), source.data.data(), bytes);
 }
 
@@ -210,7 +216,10 @@ void recalculate_checksums(std::byte* data,
                            UINT length,
                            WINDIVERT_ADDRESS& address) noexcept
 {
-    WinDivertHelperCalcChecksums(data, length, &address, 0);
+    const auto& api = windivert_api();
+    if (api.helper_calc_checksums != nullptr) {
+        api.helper_calc_checksums(data, length, &address, 0);
+    }
 }
 
 void set_ip_length(ParsedPacket& packet, UINT length) noexcept

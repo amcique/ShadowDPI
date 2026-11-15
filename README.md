@@ -31,7 +31,9 @@ destination.
   checksum, or an old sequence number.
 - **Handles QUIC.** `-9` drops QUIC/HTTP3 Initial packets so browsers fall back
   to TCP, where the other techniques apply.
-- **Scopes the work.** A blacklist can limit every trick to selected domains.
+- **Scopes the work.** A blacklist can limit the host-aware tricks to selected
+  domains. The early SYN/ACK window-size step runs before the host name is
+  known and therefore remains global to the handled ports.
 - **Redirects poisoned DNS.** IPv4 and IPv6 resolver addresses can be replaced
   on the fly.
 
@@ -114,7 +116,7 @@ Useful variations:
 
 ```powershell
 .\shadowdpi.exe -5                                  # if -9 is too aggressive
-.\shadowdpi.exe -5 --blacklist C:\blocked.txt       # only touch listed domains
+.\shadowdpi.exe -5 --blacklist C:\blocked.txt       # host-aware tricks only
 .\shadowdpi.exe -9 --verbose                        # verbose diagnostics
 .\shadowdpi.exe --help                              # options of this build
 ```
