@@ -149,6 +149,8 @@ void apply_long_option(Config& config,
                        std::string_view name,
                        std::optional<std::string_view> value)
 {
+    // The chain is grouped by option family: general flags, then HTTP, TLS,
+    // DNS, and fake-packet settings.
     if (name == "help") {
         config.help = true;
     }
@@ -159,6 +161,7 @@ void apply_long_option(Config& config,
         config.verbose = true;
     }
     else if (name == "preset") {
+        // The upper bound is checked here; apply_preset handles the rest.
         apply_preset(config, static_cast<int>(parse_unsigned(*value, "--preset", 9)));
     }
     else if (name == "block-passive" || name == "passive-dpi") {
@@ -298,6 +301,7 @@ void apply_long_option(Config& config,
         config.fake.payloads.push_back(std::move(*payload));
     }
     else if (name == "fake-sni" || name == "fake-with-sni") {
+        // Each mention appends one payload, so the cap is enforced per call.
         if (value->empty() || value->size() > kMaxHostLength) {
             throw CliError("invalid domain name for --fake-sni");
         }
@@ -307,6 +311,7 @@ void apply_long_option(Config& config,
         config.fake.payloads.push_back(make_fake_client_hello(*value));
     }
     else if (name == "fake-gen") {
+        // Generated payloads share the cap with the explicit ones above.
         const auto count = parse_unsigned(*value, "--fake-gen", kMaxFakePackets);
         if (count == 0) {
             throw CliError("--fake-gen requires at least one packet");
@@ -419,6 +424,7 @@ Config parse_cli(int argc, char* argv[])
     int argument_index = 1;
     while (argument_index < argc) {
         const std::string_view argument = argv[argument_index];
+        // A bare -- ends option parsing; it must match exactly.
         if (argument == "--") {
             if (argument_index + 1 < argc) {
                 throw CliError("unexpected positional argument: " +
@@ -428,6 +434,8 @@ Config parse_cli(int argc, char* argv[])
         }
 
         if (argument.starts_with("--")) {
+            // --name=value is split here. The separate form is resolved below,
+            // once the option kind is known.
             const auto equals = argument.find('=');
             const std::string_view name =
                 equals == std::string_view::npos
@@ -454,6 +462,8 @@ Config parse_cli(int argc, char* argv[])
                 }
             }
             else if (kind == ArgumentKind::optional) {
+                // An optional value is only consumed when the next argument is
+                // not itself a flag.
                 if (inline_value) {
                     value = *inline_value;
                 }
@@ -472,6 +482,8 @@ Config parse_cli(int argc, char* argv[])
         }
 
         if (argument.size() > 1 && argument.front() == '-') {
+            // Short options may be clustered, as in -12q. An option that takes
+            // a value ends the cluster by consuming the rest of it.
             const std::string_view cluster = argument.substr(1);
             for (std::size_t index = 0; index < cluster.size(); ++index) {
                 const char option = cluster[index];
