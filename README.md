@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.ru.md">Русский</a>
+  <strong>English</strong> · <a href="README.ru.md">Русский</a> · <a href="README.tr.md">Türkçe</a>
 </p>
 
 ShadowDPI sits between Windows and the network and rewrites the opening packets
@@ -432,4 +432,4 @@ and [third_party/WinDivert/LICENSE](third_party/WinDivert/LICENSE).
 
 ---
 
-*Русскоязычное описание: [README.ru.md](README.ru.md).*
+*Other languages: [Русский](README.ru.md) · [Türkçe](README.tr.md).*

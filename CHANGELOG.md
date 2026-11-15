@@ -33,6 +33,8 @@ benchmarks in `docs/performance.md`.
 - `--ready-file` for reliable process-start synchronisation in scripts and the
   scanner.
 - Parser benchmark with an enforced speedup floor in optimized builds.
+- Russian and Turkish translations of the README, linked from the language
+  switcher at the top of each version.
 
 ### Changed
 

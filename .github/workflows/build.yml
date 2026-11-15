@@ -22,6 +22,7 @@ on:
       - 'LICENSE'
       - 'README.md'
       - 'README.ru.md'
+      - 'README.tr.md'
       - 'CHANGELOG.md'
       - 'SECURITY.md'
       - 'packaging/**'
@@ -41,6 +42,7 @@ on:
       - 'CMakePresets.json'
       - 'README.md'
       - 'README.ru.md'
+      - 'README.tr.md'
       - 'packaging/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
@@ -113,6 +115,7 @@ jobs:
           Copy-Item NOTICE $dir
           Copy-Item README.md $dir
           Copy-Item README.ru.md $dir
+          Copy-Item README.tr.md $dir
           Copy-Item CHANGELOG.md $dir
           Copy-Item SECURITY.md $dir
           Copy-Item install.ps1 $dir

@@ -69,5 +69,5 @@ install.ps1
 ```
 
 `docs/`, `tools/`, `LICENSE`, `NOTICE`, `README.md`, `README.ru.md`,
-`CHANGELOG.md`, and `SECURITY.md` are documentation; the scanner and installer
-reference `docs/` and `tools/` by relative path, so keep them too.
+`README.tr.md`, `CHANGELOG.md`, and `SECURITY.md` are documentation; the scanner
+and installer reference `docs/` and `tools/` by relative path, so keep them too.

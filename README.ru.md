@@ -16,7 +16,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue" alt="GPLv3"></a>
 </p>
 
-[English version](README.md)
+<p align="center">
+  <a href="README.md">English</a> · <strong>Русский</strong> · <a href="README.tr.md">Türkçe</a>
+</p>
 
 ShadowDPI работает между Windows и сетью и переписывает первые пакеты
 соединения так, чтобы оборудование DPI не могло его распознать. Он работает в
