@@ -61,6 +61,9 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: c-cpp
+          # ShadowDPI has an explicit configure and build below, so capture that
+          # instead of letting CodeQL guess an autobuild command.
+          build-mode: manual
           queries: security-and-quality
 
       - name: Configure
