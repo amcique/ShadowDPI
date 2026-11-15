@@ -56,7 +56,7 @@ jobs:
     name: MSVC x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Declare short commit variable
         id: vars
@@ -65,7 +65,7 @@ jobs:
 
       - name: Restore WinDivert archive
         id: windivert-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.WINDIVERT_NAME }}
           key: ${{ env.WINDIVERT_SHA256 }}
@@ -127,7 +127,7 @@ jobs:
           Copy-Item third_party/WinDivert/README.md $thirdParty
 
       - name: Upload output file x64
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdpi_x64_${{ steps.vars.outputs.sha_short }}
           path: shadowdpi_x64_${{ steps.vars.outputs.sha_short }}
@@ -144,7 +144,7 @@ jobs:
       attestations: write
     steps:
       - name: Download x64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: shadowdpi_x64_*
           path: release
@@ -184,7 +184,7 @@ jobs:
           EOF
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         # Attestations need a public repository, or GitHub Enterprise Cloud.
         # Do not block the release if the repository is still private.
         continue-on-error: true
@@ -192,7 +192,7 @@ jobs:
           subject-path: shadowdpi-*-x64.zip
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ShadowDPI ${{ github.ref_name }}
           body_path: release-body.md

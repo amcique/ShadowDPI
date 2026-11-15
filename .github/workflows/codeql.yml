@@ -34,11 +34,11 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Restore WinDivert archive
         id: windivert-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.WINDIVERT_NAME }}
           key: ${{ env.WINDIVERT_SHA256 }}
@@ -58,7 +58,7 @@ jobs:
         run: Expand-Archive -Path $env:WINDIVERT_NAME -DestinationPath . -Force
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: c-cpp
           queries: security-and-quality
@@ -73,6 +73,6 @@ jobs:
         run: cmake --build --preset msvc-x64-release
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:c-cpp
