@@ -5,7 +5,7 @@
 <h1 align="center">ShadowDPI</h1>
 
 <p align="center">
-  <strong>Windows x64 için Deep Packet Inspection atlatma aracı. GoodbyeDPI'ye göre 67,8 kat daha az CPU kullanır.</strong><br>
+  <strong>Windows x64 için modern ve hafif DPI atlatma aracı.</strong><br>
   Proxy yok. Kök sertifika yok. TLS müdahalesi yok. Tek bir C++20 çalıştırılabilir dosya.
 </p>
 
@@ -27,9 +27,11 @@ sertifika kurmaz ve TLS trafiğini sonlandırmaz. Uygulamalar gerçek hedefle
 konuşmaya devam eder.
 
 GoodbyeDPI tarafından yaygınlaştırılan tekniklerin sıfırdan yazılmış bir C++20
-uygulamasıdır ve tek bir amaca göre tasarlandı: aynı işi olabildiğince az CPU ile
-yapmak. Aynı makinede, aynı iş yükleri ve aynı bayt sayılarıyla **ShadowDPI
-gigabayt başına 67,8 kat daha az CPU kullandı**, aktarım süresi ise değişmedi.
+uygulamasıdır. Tek bir statik çalıştırılabilir dosyadır ve çalışma zamanı
+bağımlılığı yoktur. Açık bırakmanın maliyeti neredeyse sıfırdır: 19 MiB/s
+hızındaki yoğun bir bağlantıda tek bir çekirdeğin yaklaşık %0,03'ünü kullanır.
+Aynı makinede, aynı iş yükleri ve aynı bayt sayılarıyla GoodbyeDPI'ye göre
+**gigabayt başına 67,8 kat daha az CPU** kullandı, aktarım süresi ise değişmedi.
 
 ## Hızlı başlangıç
 
@@ -70,19 +72,22 @@ sürümleri uyumlu kalsın.
 
 ## Neden ShadowDPI
 
-- **CPU maliyeti düşük.** Büyük HTTPS aktarımlarında 500-810 kat, daha hafif iş
-  yüklerinde 2-75 kat daha az CPU; aktarılan bayt başına 67,8 kat daha az. Bu,
-  makinedeki yönlendiriciler, VPN'ler ve diğer yazılımlar için alan bırakır.
+- **Açık bırakılabilecek kadar hafif.** 19 MiB/s hızındaki yoğun bir bağlantıda
+  tek çekirdeğin yaklaşık %0,03'ü, büyük HTTPS aktarımlarında GoodbyeDPI'ye göre
+  500-810 kat daha az CPU. Daha hafif iş yüklerinde 2-75 kat, aktarılan bayt
+  başına 67,8 kat. Bu, makinedeki yönlendiriciler, VPN'ler ve diğer yazılımlar
+  için alan bırakır.
 - **Yapısı gereği şeffaf.** Proxy ayarı, PAC dosyası, sertifika deposu
   değişikliği yok. ShadowDPI durursa uygulamalar çalışmaya devam eder.
 - **Yalnızca hazır ayarlar değil, strateji tarayıcısı da var.** DPI sağlayıcıya
   göre değişir ve zamanla güncellenir. `install.ps1 -Action scan` hazır ayarları
   ve seçenek birleşimlerini kendi URL listenizde dener, engellenen her adresi
   açan ve çalışan hiçbir adresi bozmayan ilk stratejiyi bildirir.
-- **Sistem yazılımı gibi yazıldı.** Platformdan bağımsız ve birim testleri olan
-  bir çekirdek, ince bir Windows katmanı, `WinDivertHelperParsePacket` ile bayt
-  bayt karşılaştırılan ve rastgele bir korpusla sınanan bir paket ayrıştırıcı,
-  CI'da hız eşiği denetlenen bir ayrıştırıcı ölçümü.
+- **Modern C++20, sistem yazılımı gibi yazıldı.** Tek bir statik çalıştırılabilir
+  dosya ve çalışma zamanı bağımlılığı yok; platformdan bağımsız ve birim testleri
+  olan bir çekirdek, ince bir Windows katmanı, `WinDivertHelperParsePacket` ile
+  bayt bayt karşılaştırılan ve rastgele bir korpusla sınanan bir paket
+  ayrıştırıcı, CI'da hız eşiği denetlenen bir ayrıştırıcı ölçümü.
 - **İncelemesi açık.** İlk herkese açık sürümden önce 20 bulgu içeren bir kaynak
   incelemesi yapıldı ve hepsi düzeltildi. Rapor:
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).

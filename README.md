@@ -5,7 +5,7 @@
 <h1 align="center">ShadowDPI</h1>
 
 <p align="center">
-  <strong>Deep Packet Inspection circumvention for Windows x64 that uses 67.8× less CPU than GoodbyeDPI.</strong><br>
+  <strong>Modern and lightweight DPI circumvention utility for Windows x64.</strong><br>
   No proxy. No root certificate. No TLS interception. One C++20 executable.
 </p>
 
@@ -28,10 +28,11 @@ certificate, and never terminates TLS. Applications keep talking to the real
 destination.
 
 It is a from-scratch C++20 implementation of the techniques popularised by
-[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI), built around one goal:
-doing the same work with as little CPU as possible. On the same host, with the
-same workloads and byte counts, **ShadowDPI used 67.8× less CPU per gigabyte**
-while wall-clock transfer time stayed identical.
+[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI). It is one static executable
+with no runtime dependencies, and it costs almost nothing to leave on: on a busy
+19 MiB/s link it uses around 0.03% of one core. Against GoodbyeDPI on the same
+host, with the same workloads and byte counts, it used 67.8× less CPU per
+gigabyte while wall-clock transfer time stayed identical.
 
 ## Quick start
 
@@ -71,18 +72,19 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 
 ## Why ShadowDPI
 
-- **Cheap enough to leave running.** 500-810× less CPU on bulk HTTPS transfers
-  and 2-75× on the lighter workloads, 67.8× aggregated by bytes transferred.
-  That leaves headroom for routers, VPNs, and everything else on the machine.
+- **Light enough to leave running.** About 0.03% of one core on a busy 19 MiB/s
+  link, and 500-810× less CPU than GoodbyeDPI on bulk HTTPS transfers. Lighter
+  workloads show 2-75×, 67.8× aggregated by bytes transferred. That leaves
+  headroom for routers, VPNs, and everything else on the machine.
 - **Transparent by construction.** No proxy settings, no PAC file, no
   certificate store changes. If ShadowDPI stops, applications keep working.
 - **A strategy scanner, not just presets.** DPI differs per provider and changes
   over time. `install.ps1 -Action scan` tests presets and option combinations
   against your own URL list and reports the first one that recovers everything.
-- **Built like systems software.** A platform-independent, unit-tested core; a
-  thin Windows layer; parser parity tests against `WinDivertHelperParsePacket`
-  with a randomised corpus; a parser benchmark with an enforced speedup floor in
-  CI.
+- **Modern C++20, built like systems software.** One static executable with no
+  runtime dependencies; a platform-independent, unit-tested core; a thin Windows
+  layer; parser parity tests against `WinDivertHelperParsePacket` with a
+  randomised corpus; a parser benchmark with an enforced speedup floor in CI.
 - **Reviewed in the open.** A 20-finding source review was completed and fixed
   before the first public release. The report is in
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).

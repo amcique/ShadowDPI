@@ -178,7 +178,7 @@ scale of the headroom.
   identical run and confirmed by paired ratios far outside the A/A range.
 - **The wall-clock difference is not.** Throughput and median latency are
   unchanged within the host's own variance.
-- **The 67.8× aggregate is the conservative headline.** Bulk transfers show
+- **The 67.8× aggregate is the conservative figure.** Bulk transfers show
   500-810×; small-request mixes and idle traffic dilute the byte-weighted
   average because fixed per-request costs matter more there.
 - **The keep-alive ratio is a range.** Session-to-session variation was large
