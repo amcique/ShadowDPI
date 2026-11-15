@@ -1,12 +1,18 @@
-# ShadowDPI source review findings
+# ShadowDPI source review — November 2026
 
-Read-only review of all first-party code under `src/` and `include/`, plus
-`CMakeLists.txt`, `CMakePresets.json`, `resources/`, and `tests/`.
-`third_party/` and `build/` were excluded.
+This is the review ShadowDPI's maintainers ran against their own code before the
+first public release. It is published so that readers can judge the project by
+what was found and fixed rather than by claims in a README.
 
-**Severity counts: 0 Critical · 2 High · 9 Medium · 8 Low · 1 Nit (20).**
+- **Scope:** all first-party code under `src/` and `include/`, plus
+  `CMakeLists.txt`, `CMakePresets.json`, `resources/`, and `tests/`.
+  `third_party/` and `build/` were excluded.
+- **Result:** 0 Critical · 2 High · 9 Medium · 8 Low · 1 Nit — 20 findings.
+- **Status:** every finding below is fixed in `v0.3.0`. The status column
+  reflects the final state.
 
-All findings were fixed; the status column reflects the final state.
+Each entry lists the original location as it was at review time, the impact, and
+the fix that shipped.
 
 | ID | Severity | Status | Area | Title |
 |---|---|---|---|---|

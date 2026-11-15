@@ -19,6 +19,10 @@ on:
       - 'NOTICE'
       - 'LICENSE'
       - 'README.md'
+      - 'README.ru.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'packaging/**'
       - '.github/workflows/build.yml'
   pull_request:
     paths:
@@ -33,6 +37,9 @@ on:
       - 'install.ps1'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
+      - 'README.md'
+      - 'README.ru.md'
+      - 'packaging/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
@@ -103,6 +110,9 @@ jobs:
           Copy-Item LICENSE $dir
           Copy-Item NOTICE $dir
           Copy-Item README.md $dir
+          Copy-Item README.ru.md $dir
+          Copy-Item CHANGELOG.md $dir
+          Copy-Item SECURITY.md $dir
           Copy-Item install.ps1 $dir
           Copy-Item docs $dir -Recurse
           Copy-Item tools $dir -Recurse
@@ -127,6 +137,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
+      id-token: write
+      attestations: write
     steps:
       - name: Download x64 artifact
         uses: actions/download-artifact@v4
@@ -141,12 +154,46 @@ jobs:
           mkdir -p "shadowdpi-${version}-x64"
           cp -R release/. "shadowdpi-${version}-x64/"
           ( cd "shadowdpi-${version}-x64" && find . -type f -print0 | sort -z | xargs -0 sha256sum ) > "shadowdpi-${version}-x64.sha256"
-          zip -r "shadowdpi-${version}-x64.zip" "shadowdpi-${version}-x64"
+          zip -qr "shadowdpi-${version}-x64.zip" "shadowdpi-${version}-x64"
+          sha256sum "shadowdpi-${version}-x64.zip" >> "shadowdpi-${version}-x64.sha256"
+          cat > release-body.md <<EOF
+          Windows x64. Unpack \`shadowdpi-${version}-x64.zip\` and run
+          \`install.ps1\` from an elevated PowerShell, or run
+          \`shadowdpi.exe\` directly to try it without installing.
+
+          ### Verify the download
+
+          \`\`\`powershell
+          Get-FileHash .\shadowdpi-${version}-x64.zip -Algorithm SHA256
+          gh attestation verify .\shadowdpi-${version}-x64.zip --repo ${{ github.repository }}
+          \`\`\`
+
+          Compare the hash with the matching line in
+          \`shadowdpi-${version}-x64.sha256\`. The same file lists a hash for
+          every file inside the archive.
+
+          ### Notes
+
+          - See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for what changed.
+          - ShadowDPI needs Administrator rights and loads the WinDivert kernel driver.
+          - The executable is not Authenticode-signed, so SmartScreen and some
+            antivirus engines may warn. Verify the hash or build from source.
+          - Report vulnerabilities through [SECURITY.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/SECURITY.md), not a public issue.
+          EOF
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        # Attestations need a public repository, or GitHub Enterprise Cloud.
+        # Do not block the release if the repository is still private.
+        continue-on-error: true
+        with:
+          subject-path: shadowdpi-*-x64.zip
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           name: ShadowDPI ${{ github.ref_name }}
+          body_path: release-body.md
           generate_release_notes: true
           files: |
             shadowdpi-*.zip

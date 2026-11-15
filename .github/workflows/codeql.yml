@@ -1,0 +1,78 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WINDIVERT_URL: https://reqrypt.org/download/WinDivert-2.2.0-D.zip
+  WINDIVERT_NAME: WinDivert-2.2.0-D.zip
+  WINDIVERT_BASENAME: WinDivert-2.2.0-D
+  WINDIVERT_SHA256: 1d461cfdfa7ba88ebcfbb3603b71b703e9f72aba8aeff99a75ce293e6f89d2ba
+
+jobs:
+  analyze:
+    name: Analyze C++
+    runs-on: windows-latest
+    timeout-minutes: 90
+    # Code scanning is free for public repositories; private ones need GitHub
+    # Advanced Security. Skip instead of showing a red check before launch.
+    if: github.event.repository.visibility == 'public'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore WinDivert archive
+        id: windivert-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WINDIVERT_NAME }}
+          key: ${{ env.WINDIVERT_SHA256 }}
+
+      - name: Download WinDivert
+        if: steps.windivert-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
+          $hash = (Get-FileHash $env:WINDIVERT_NAME -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:WINDIVERT_SHA256) {
+            throw "WinDivert checksum mismatch: $hash"
+          }
+
+      - name: Extract WinDivert
+        shell: pwsh
+        run: Expand-Archive -Path $env:WINDIVERT_NAME -DestinationPath . -Force
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          queries: security-and-quality
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $env:WINDIVERT_ROOT = Join-Path $env:GITHUB_WORKSPACE $env:WINDIVERT_BASENAME
+          cmake --preset msvc-x64 -DSHADOWDPI_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build --preset msvc-x64-release
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:c-cpp

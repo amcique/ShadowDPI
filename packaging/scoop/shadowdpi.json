@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
+  "version": "0.3.0",
+  "description": "Deep Packet Inspection circumvention for Windows x64 with a fraction of the CPU cost.",
+  "homepage": "https://github.com/amcique/ShadowDPI",
+  "license": "GPL-3.0-only",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/amcique/ShadowDPI/releases/download/v0.3.0/shadowdpi-0.3.0-x64.zip",
+      "hash": "REPLACE_WITH_SHA256_OF_shadowdpi-0.3.0-x64.zip",
+      "extract_dir": "shadowdpi-0.3.0-x64"
+    }
+  },
+  "bin": "shadowdpi.exe",
+  "shortcuts": [
+    [
+      "shadowdpi.exe",
+      "ShadowDPI"
+    ]
+  ],
+  "notes": [
+    "ShadowDPI needs Administrator rights and loads the WinDivert driver on first run.",
+    "Run 'shadowdpi.exe' from an elevated prompt, or run 'install.ps1' from this",
+    "directory to install it as a service. Scoop installs per-user, so the service",
+    "step is intentionally not automated here."
+  ],
+  "checkver": {
+    "github": "https://github.com/amcique/ShadowDPI"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/amcique/ShadowDPI/releases/download/v$version/shadowdpi-$version-x64.zip",
+        "hash": {
+          "url": "https://github.com/amcique/ShadowDPI/releases/download/v$version/shadowdpi-$version-x64.sha256"
+        }
+      }
+    },
+    "extract_dir": "shadowdpi-$version-x64"
+  }
+}
