@@ -313,6 +313,12 @@ bool Application::open_filters()
         return false;
     }
 
+    std::string runtime_error;
+    if (!check_windivert_runtime(runtime_error)) {
+        logger_.error(runtime_error);
+        return false;
+    }
+
     if (config_.block_passive &&
         !open_drop_filter(build_passive_filter(config_), "passive DPI")) {
         return false;

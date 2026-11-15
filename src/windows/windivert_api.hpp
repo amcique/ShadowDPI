@@ -31,4 +31,14 @@ struct WinDivertApi {
 /// load_windivert_api() call.
 [[nodiscard]] const WinDivertApi& windivert_api() noexcept;
 
+/// Checks that a WinDivert driver file sits next to the loaded WinDivert.dll.
+/// Call this after load_windivert_api() and before the first WinDivertOpen(),
+/// so a release archive unpacked without the driver fails with a clear message
+/// instead of an opaque open error.
+///
+/// The DLL itself carries no version resource, so a DLL and driver from
+/// different releases cannot be told apart here. WinDivertOpen reports that
+/// case as error 654, which divert_error_hint() explains.
+[[nodiscard]] bool check_windivert_runtime(std::string& error) noexcept;
+
 } // namespace sdp::win

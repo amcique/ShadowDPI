@@ -80,6 +80,12 @@ the source folder, the install time, the service settings, and the installed
 payload. The installer uses it to find an existing installation, preserve its
 configuration, and remove files that a later release no longer contains.
 
+At startup, `shadowdpi.exe` checks that `WinDivert64.sys` sits next to the loaded
+`WinDivert.dll` and stops with an error if it is missing. Copying only
+`shadowdpi.exe` out of the archive is not enough. If the two files come from
+different WinDivert releases, WinDivert reports the mismatch when the driver is
+opened and the message names the existing driver.
+
 A custom folder can be selected with `-InstallPath`:
 
 ```powershell
