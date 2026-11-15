@@ -16,7 +16,7 @@ One field must be filled after the release asset exists:
 (Get-FileHash .\shadowdpi-0.3.0-x64.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
-Paste the result into `"hash"` in place of the `REPLACE_WITH_…` placeholder, then
+Paste the result into the `"hash"` field, replacing the placeholder value, then
 test locally:
 
 ```powershell
@@ -43,7 +43,7 @@ not fit any installer type safely:
 - `script` points at one file, but `install.ps1` expects the other release files
   next to it.
 
-The clean fix is a real installer — an MSI (WiX) or a signed `setup.exe` that
+The clean fix is a real installer: an MSI (WiX) or a signed `setup.exe` that
 runs the existing install logic and declares `ElevationRequirement:
 elevationRequired`. With that in place:
 

@@ -3,8 +3,8 @@
 Thanks for taking the time to contribute. Bug reports, tuning reports from
 providers that behave unusually, and pull requests are all welcome.
 
-Please read [`CODE_OF_CONDUCT`](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
-— in short, be civil and assume good faith. Security issues go through
+Please read the [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+In short: be civil and assume good faith. Security issues go through
 [SECURITY.md](SECURITY.md), not the public tracker.
 
 ## Before you open an issue

@@ -40,7 +40,7 @@ and cannot fall back, use `-5` instead.
 | `-h`, `--help` | Print the help text of this exact build and exit. |
 | `-V`, `--version` | Print the version and exit. |
 | `-v`, `--verbose` | Enable verbose diagnostics. |
-| `--preset <1-9>` | Apply a preset. The short forms `-1` … `-9` are equivalent. |
+| `--preset <1-9>` | Apply a preset. The short forms `-1` to `-9` are equivalent. |
 | `--debug-exit` | Open the WinDivert filters, report success, and exit. Useful for diagnostics. |
 | `--ready-file <path>` | Write a readiness file after the filters are open, then keep running. The file contains the version and process ID. Used by `install.ps1 -Action scan`; the caller removes stale files before starting. |
 

@@ -5,7 +5,7 @@
 <h1 align="center">ShadowDPI</h1>
 
 <p align="center">
-  <strong>Deep Packet Inspection circumvention for Windows x64 — with 67.8× less CPU than GoodbyeDPI.</strong><br>
+  <strong>Deep Packet Inspection circumvention for Windows x64 that uses 67.8× less CPU than GoodbyeDPI.</strong><br>
   No proxy. No root certificate. No TLS interception. One C++20 executable.
 </p>
 
@@ -28,10 +28,10 @@ certificate, and never terminates TLS. Applications keep talking to the real
 destination.
 
 It is a from-scratch C++20 implementation of the techniques popularised by
-[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI), written to answer one
-question: how little CPU can this cost? On the same host, with the same
-workloads and byte counts, **ShadowDPI used 67.8× less CPU per gigabyte** while
-wall-clock transfer time stayed identical.
+[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI), built around one goal:
+doing the same work with as little CPU as possible. On the same host, with the
+same workloads and byte counts, **ShadowDPI used 67.8× less CPU per gigabyte**
+while wall-clock transfer time stayed identical.
 
 ## Quick start
 
@@ -71,8 +71,8 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 
 ## Why ShadowDPI
 
-- **Cheap enough to leave running.** 500–810× less CPU on bulk HTTPS transfers
-  and 2–75× on the lighter workloads, 67.8× aggregated by bytes transferred.
+- **Cheap enough to leave running.** 500-810× less CPU on bulk HTTPS transfers
+  and 2-75× on the lighter workloads, 67.8× aggregated by bytes transferred.
   That leaves headroom for routers, VPNs, and everything else on the machine.
 - **Transparent by construction.** No proxy settings, no PAC file, no
   certificate store changes. If ShadowDPI stops, applications keep working.
@@ -99,7 +99,7 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 | Measured CPU per GiB | **1× (baseline)** | 67.8× | not measured | not measured |
 
 ShadowDPI and GoodbyeDPI were benchmarked head to head; Zapret and ByeDPI were
-not, and "not measured" is not a claim of superiority — they solve the same
+not, and "not measured" is not a claim of superiority; they solve the same
 problem with different tradeoffs, and Zapret in particular exposes far more
 desync options than ShadowDPI does. If ShadowDPI's presets do not fit your
 provider, try them too. Method and caveats:
@@ -155,7 +155,7 @@ Presets are additive groups of options; later arguments override them.
 
 | Preset | What it adds |
 | --- | --- |
-| `-1` … `-4` | Passive blocking plus HTTP Host tricks; TLS split is 2, 40, or off |
+| `-1` to `-4` | Passive blocking plus HTTP Host tricks; TLS split is 2, 40, or off |
 | `-5` | HTTP/TLS splitting, reverse order, and automatic fake TTL |
 | `-6` | Splitting plus fake packets with a wrong TCP sequence number |
 | `-7` | Splitting plus fake packets with a bad checksum |
@@ -242,7 +242,7 @@ desktop utility.
 
 The pre-release review that produced these changes is public:
 [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
-To report a vulnerability, follow [SECURITY.md](SECURITY.md) — please do not
+To report a vulnerability, follow [SECURITY.md](SECURITY.md). Please do not
 open a public issue.
 
 ## Requirements
@@ -356,7 +356,7 @@ The complete installer reference is in [docs/install.md](docs/install.md).
 
 **Windows says "Windows protected your PC", and my antivirus is unhappy.**
 Expected. The release executable is not Authenticode-signed, and it installs a
-kernel driver — exactly the profile reputation systems dislike. Verify the
+kernel driver, exactly the profile reputation systems dislike. Verify the
 download instead of trusting the prompt: compare the SHA-256 against the
 published `.sha256` file and check the build attestation (see below), or
 [build from source](#build-from-source-msvc-x64). WinDivert itself is a
@@ -432,4 +432,4 @@ and [third_party/WinDivert/LICENSE](third_party/WinDivert/LICENSE).
 
 ---
 
-*Русскоязычное описание — в [README.ru.md](README.ru.md).*
+*Русскоязычное описание: [README.ru.md](README.ru.md).*

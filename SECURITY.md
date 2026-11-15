@@ -15,8 +15,8 @@ Use GitHub's private vulnerability reporting:
    minimal reproduction.
 
 If private reporting is unavailable, open a public issue that says only *"I have
-a security report, please contact me"* — without details — and a maintainer will
-move the conversation to a private channel.
+a security report, please contact me"* and nothing else. A maintainer will move
+the conversation to a private channel.
 
 ### What to expect
 
@@ -44,7 +44,7 @@ development branch and may be broken at any time.
 - Memory-safety bugs in packet parsing, fragmentation, or reinjection.
 - Out-of-bounds reads or writes reachable from network input.
 - Privilege escalation through DLL or driver loading, or through the installer.
-- Denial of service reachable from unauthenticated traffic — for example
+- Denial of service reachable from unauthenticated traffic, for example
   unbounded memory growth in the TTL or DNS trackers.
 - Filter or blacklist bypasses that cause traffic to be modified when the user
   scoped it away.

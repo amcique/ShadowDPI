@@ -4,7 +4,7 @@ All notable changes to ShadowDPI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [0.3.0] — 2026-11-15
+## [0.3.0] - 2026-11-15
 
 First public release. This is the version described by the README and the
 benchmarks in `docs/performance.md`.
@@ -12,7 +12,7 @@ benchmarks in `docs/performance.md`.
 ### Added
 
 - User-space DPI circumvention on top of WinDivert, with additive presets
-  (`-1` … `-9`) for HTTP Host tricks, TLS splitting, native fragmentation, fake
+  (`-1` to `-9`) for HTTP Host tricks, TLS splitting, native fragmentation, fake
   packets with a wrong sequence number or bad checksum, automatic fake TTL, and
   QUIC blocking.
 - Strategy scanner (`install.ps1 -Action scan`) that starts one process per

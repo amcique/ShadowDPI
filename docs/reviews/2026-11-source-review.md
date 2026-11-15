@@ -1,4 +1,4 @@
-# ShadowDPI source review — November 2026
+# ShadowDPI source review, November 2026
 
 This is the review ShadowDPI's maintainers ran against their own code before the
 first public release. It is published so that readers can judge the project by
@@ -7,7 +7,7 @@ what was found and fixed rather than by claims in a README.
 - **Scope:** all first-party code under `src/` and `include/`, plus
   `CMakeLists.txt`, `CMakePresets.json`, `resources/`, and `tests/`.
   `third_party/` and `build/` were excluded.
-- **Result:** 0 Critical · 2 High · 9 Medium · 8 Low · 1 Nit — 20 findings.
+- **Result:** 20 findings: 0 Critical, 2 High, 9 Medium, 8 Low, 1 Nit.
 - **Status:** every finding below is fixed in `v0.3.0`. The status column
   reflects the final state.
 
@@ -41,7 +41,7 @@ the fix that shipped.
 
 ## High-severity findings
 
-### H1 — Receive failure terminates the loop but is reported as success
+### H1: Receive failure terminates the loop but is reported as success
 
 - **Severity:** High
 - **Location:** `src/windows/application.cpp:323-337`, `src/windows/application.cpp:136-140`, `src/windows/service.cpp:63-72`
@@ -88,7 +88,7 @@ non-zero on unexpected receive failure. Keep the stop-requested path as success.
 
 ---
 
-### H2 — Passive filter’s `#IPID#` clause is always true
+### H2: Passive filter's `#IPID#` clause is always true
 
 - **Severity:** High
 - **Location:** `src/core/filter.cpp:45-49`, `src/core/filter.cpp:88-95`, `src/core/filter.cpp:152-156`
@@ -107,7 +107,7 @@ constexpr std::string_view kPassiveFilterTemplate =
     "#NO_LOCALNETS_V4_SRC#";
 ```
 
-**Impact.** With `block_passive` enabled (presets 1–4), every inbound RST from
+**Impact.** With `block_passive` enabled (presets 1-4), every inbound RST from
 ports 80/443 is dropped, including legitimate server resets, and `--ip-id` is
 inert for passive blocking.
 
@@ -118,11 +118,11 @@ inert for passive blocking.
 
 ## Medium-severity findings
 
-### M1 — Stop callback can race with filter setup and can outlive `Application`
+### M1: Stop callback can race with filter setup and can outlive `Application`
 
 - **Severity:** Medium
 - **Location:** `src/windows/application.cpp:121-124,261,295-298`, `src/windows/lifecycle.cpp:39-50`
-- **Confidence:** Medium–High
+- **Confidence:** Medium-High
 
 **Problem.** The stop callback is registered before `open_filters()` and
 captures `this`. `ShutdownCoordinator::request_stop()` invokes it from a
@@ -139,7 +139,7 @@ in-flight callback.
 
 ---
 
-### M2 — Unsynchronized `g_status` access in the service
+### M2: Unsynchronized `g_status` access in the service
 
 - **Severity:** Medium
 - **Location:** `src/windows/service.cpp:15-16,24-31,40-54,66-72`
@@ -154,15 +154,15 @@ small helper.
 
 ---
 
-### M3 — Any `StartServiceCtrlDispatcher` failure is treated as console startup
+### M3: Any `StartServiceCtrlDispatcher` failure is treated as console startup
 
 - **Severity:** Medium
 - **Location:** `src/windows/service.cpp:89-95`
 - **Confidence:** High
 
 **Problem.** `run_as_service_if_requested()` returns `false` for every failure,
-but only `ERROR_FAILED_SERVICE_CONTROLLER_CONNECT` means “started from a
-console.” Other errors are swallowed and the process falls through to
+but only `ERROR_FAILED_SERVICE_CONTROLLER_CONNECT` means "started from a
+console." Other errors are swallowed and the process falls through to
 interactive mode.
 
 **Fix.** Check `GetLastError()`; only the console error returns `false`.
@@ -170,7 +170,7 @@ Report other errors and exit non-zero.
 
 ---
 
-### M4 — DNS redirect accepts unvalidated responses (spoofing/DoS)
+### M4: DNS redirect accepts unvalidated responses (spoofing/DoS)
 
 - **Severity:** Medium
 - **Location:** `src/core/dns_tracker.cpp:41-49,64-75`, `src/windows/packet_engine.cpp:314-337`
@@ -183,7 +183,7 @@ endpoint, then erases the entry.
 
 **Impact.** An attacker can inject a DNS-looking response to consume the entry,
 delivering a rewritten packet to the application while the real response is
-dropped. Matching ID/question can poison the application’s resolver path.
+dropped. Matching ID/question can poison the application's resolver path.
 
 **Fix.** Store the transaction ID and question; validate both. Validate the
 incoming source against the configured resolver in the engine. Do not erase the
@@ -191,7 +191,7 @@ entry on a mismatch.
 
 ---
 
-### M5 — Unbounded TTL/DNS tracker maps; 30 s full-map cleanup
+### M5: Unbounded TTL/DNS tracker maps; 30 s full-map cleanup
 
 - **Severity:** Medium
 - **Location:** `src/core/ttl_tracker.cpp:30-46,112-132`, `src/core/dns_tracker.cpp:41-49,93-113`
@@ -208,11 +208,11 @@ and shorten the cleanup interval.
 
 ---
 
-### M6 — Blacklist does not gate the SYN/ACK window-size trick
+### M6: Blacklist does not gate the SYN/ACK window-size trick
 
 - **Severity:** Medium
 - **Location:** `src/windows/packet_engine.cpp:268-300`, `README.md:34`, `docs/cli.md:105`
-- **Confidence:** Medium–High
+- **Confidence:** Medium-High
 
 **Problem.** `process_tcp_control()` applies `change_window_size()` to inbound
 SYN/ACK packets whenever fragmentation is enabled and native fragmentation is
@@ -231,7 +231,7 @@ step to run after the host name is known.
 
 ---
 
-### M7 — Keep-alive options are dead; docs claim ACK waiting
+### M7: Keep-alive options are dead; docs claim ACK waiting
 
 - **Severity:** Medium
 - **Location:** `src/windows/packet_engine.cpp:181-186`, `src/core/config.cpp:42-43`, `src/core/cli.cpp:371-375`, `docs/cli.md:59-60`, `include/shadowdpi/config.hpp:22-23`
@@ -245,7 +245,7 @@ state machine.
 
 ---
 
-### M8 — WinDivert send failures are ignored
+### M8: WinDivert send failures are ignored
 
 - **Severity:** Medium
 - **Location:** `src/windows/application.cpp:46-49,347-355`, `src/windows/packet_sink.hpp:14`, `src/windows/fake_sender.cpp:73`, `src/windows/packet_engine.cpp:490`
@@ -262,7 +262,7 @@ and abort remaining fragments when a fragment send fails.
 
 ---
 
-### M9 — DLL search mitigation cannot protect the static WinDivert import
+### M9: DLL search mitigation cannot protect the static WinDivert import
 
 - **Severity:** Medium
 - **Location:** `CMakeLists.txt:152-155`, `src/windows/main.cpp:7-10`, `src/windows/application.cpp:235`
@@ -292,7 +292,7 @@ LOAD_LIBRARY_SEARCH_SYSTEM32)` and `GetProcAddress`. `dnsapi.dll` is loaded from
 
 ## Low-severity findings
 
-### L1 — Presets 1/2 do not match their documented command-line equivalents
+### L1: Presets 1/2 do not match their documented command-line equivalents
 
 - **Severity:** Low
 - **Location:** `src/core/cli.cpp:568-569`, `src/core/config.cpp:32-44`
@@ -306,7 +306,7 @@ compares the preset with its documented expansion.
 
 ---
 
-### L2 — Native fragmentation duplicates FIN/URG flags
+### L2: Native fragmentation duplicates FIN/URG flags
 
 - **Severity:** Low
 - **Location:** `src/windows/packet_engine.cpp:450-491`
@@ -319,7 +319,7 @@ duplicated, so the peer can see FIN on the head fragment and close early.
 
 ---
 
-### L3 — Extra-port filter clause diverts all TCP on that port
+### L3: Extra-port filter clause diverts all TCP on that port
 
 - **Severity:** Low
 - **Location:** `src/core/filter.cpp:118-125`
@@ -333,7 +333,7 @@ appropriate port role; keep inbound SYN/ACK for the window trick.
 
 ---
 
-### L4 — HTTP header search is case-sensitive and body-wide
+### L4: HTTP header search is case-sensitive and body-wide
 
 - **Severity:** Low
 - **Location:** `src/core/http.cpp:30-49,67-92`
@@ -347,7 +347,7 @@ case-insensitively.
 
 ---
 
-### L5 — SNI extractor aborts on the first malformed candidate
+### L5: SNI extractor aborts on the first malformed candidate
 
 - **Severity:** Low
 - **Location:** `src/core/tls.cpp:52-60`
@@ -362,7 +362,7 @@ candidate length or offset is invalid, instead of continuing to scan.
 
 ---
 
-### L6 — `copy_packet` does not clamp the copied length
+### L6: `copy_packet` does not clamp the copied length
 
 - **Severity:** Low
 - **Location:** `src/windows/packet.cpp:173-181`
@@ -376,7 +376,7 @@ descriptor larger than its storage.
 
 ---
 
-### L7 — Build lacks warnings-as-errors/static analysis; WinDivert runtime files are optional
+### L7: Build lacks warnings-as-errors/static analysis; WinDivert runtime files are optional
 
 - **Severity:** Low
 - **Location:** `CMakeLists.txt:64-66,84-92,159-161,166-190`
@@ -391,7 +391,7 @@ plus hardening flags.
 
 ---
 
-### L8 — QUIC filter only matches QUIC v1
+### L8: QUIC filter only matches QUIC v1
 
 - **Severity:** Low
 - **Location:** `src/core/filter.cpp:158-163`
@@ -406,7 +406,7 @@ plus hardening flags.
 
 ## Nit
 
-### N1 — Manifest omits the Windows 7 `supportedOS` GUID; `enable_testing()` is duplicated
+### N1: Manifest omits the Windows 7 `supportedOS` GUID; `enable_testing()` is duplicated
 
 - **Severity:** Nit
 - **Location:** `resources/shadowdpi.exe.manifest:12-17`, `CMakeLists.txt:196,246`
@@ -421,12 +421,12 @@ mentioning it. `enable_testing()` is called twice.
 
 ## Top priorities
 
-1. **H1** — propagate runtime receive failure so the service cannot report
+1. **H1**: propagate runtime receive failure so the service cannot report
    success while protection is off.
-2. **H2** — restore the passive IP-ID restriction and test the generated filter.
-3. **M4** — validate DNS transaction ID, question, and resolver endpoint before
+2. **H2**: restore the passive IP-ID restriction and test the generated filter.
+3. **M4**: validate DNS transaction ID, question, and resolver endpoint before
    consuming tracker entries.
-4. **M1** — fix the shutdown/open-filter race alongside H1.
+4. **M1**: fix the shutdown/open-filter race alongside H1.
 
 ## Test coverage added with the fixes
 
