@@ -9,7 +9,7 @@ PackageUrl: https://github.com/amcique/ShadowDPI
 License: GPL-3.0-only
 LicenseUrl: https://github.com/amcique/ShadowDPI/blob/v0.3.0/LICENSE
 Copyright: Copyright (c) ShadowDPI contributors
-ShortDescription: Modern and lightweight DPI circumvention utility for Windows x64.
+ShortDescription: Modern and lightweight DPI circumvention utility for Windows x64
 Description: ShadowDPI changes the first packets of a connection so deep packet inspection has a harder time recognizing it. It runs on WinDivert, needs Administrator rights, and includes a scanner for finding a preset that works on your provider.
 Moniker: shadowdpi
 Tags:
