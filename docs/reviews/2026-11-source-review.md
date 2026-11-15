@@ -454,7 +454,8 @@ mentioning it. `enable_testing()` is called twice.
 
 - Clean split between `shadowdpi_core` and the Windows layer.
 - RAII for WinDivert handles.
-- Bounds-checked packet parsing with parity tests and fuzzing.
+- Bounds-checked packet parsing with parity tests against WinDivert and a
+  randomized corpus.
 - Correct checksum fixups and scratch-buffer reuse.
 - Thorough CLI/config validation.
 - Boundary-aware, case-insensitive blacklist matching.
