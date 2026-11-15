@@ -119,6 +119,15 @@ whether the service was running. If the service was running, it is stopped for
 the file update and started again afterward. If it was stopped, it stays
 stopped. `-NoStart` forces it to stay stopped.
 
+The installer also configures recovery. If the service exits unexpectedly,
+Windows restarts it after 5 seconds, then 15, then 60, and resets the count
+after a day of uptime. A stop requested through the Service Control Manager is
+not restarted. To turn recovery off, run this from an elevated Command Prompt:
+
+```text
+sc.exe failure ShadowDPI reset= 0 actions= ""
+```
+
 If a service with the requested name already exists and points to a different
 folder, a new install stops with an error instead of changing that service.
 Choose another name with `-ServiceName` or remove the existing service first.

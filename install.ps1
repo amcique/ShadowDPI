@@ -905,6 +905,27 @@ function Get-ServiceBinaryPath {
     return $value
 }
 
+function Set-ShadowServiceRecovery {
+    param([string]$Name)
+
+    Assert-ServiceName -Name $Name
+
+    # Restart a service that exits instead of leaving protection off until the
+    # next reboot. Windows waits 5, then 15, then 60 seconds, and resets the
+    # counter after a day of uptime.
+    $failure = Invoke-ScCommandLine -Arguments ('failure "' + $Name + '" reset= 86400 actions= restart/5000/restart/15000/restart/60000')
+    if ($failure.ExitCode -ne 0) {
+        Write-Warn "The service recovery actions could not be set. $($failure.Output)"
+    }
+
+    # Count exits that do not report a clean stop as failures, so a crashed or
+    # killed process is restarted as well.
+    $flag = Invoke-ScCommandLine -Arguments ('failureflag "' + $Name + '" 1')
+    if ($flag.ExitCode -ne 0) {
+        Write-Warn "The service failure flag could not be set. $($flag.Output)"
+    }
+}
+
 function New-ShadowService {
     param(
         [string]$Name,
@@ -929,6 +950,8 @@ function New-ShadowService {
     if ($description.ExitCode -ne 0) {
         Write-Warn "The service description could not be set. $($description.Output)"
     }
+
+    Set-ShadowServiceRecovery -Name $Name
 }
 
 function Set-ShadowService {
@@ -955,6 +978,8 @@ function Set-ShadowService {
     if ($description.ExitCode -ne 0) {
         Write-Warn "The service description could not be set. $($description.Output)"
     }
+
+    Set-ShadowServiceRecovery -Name $Name
 }
 
 function Remove-ShadowService {
