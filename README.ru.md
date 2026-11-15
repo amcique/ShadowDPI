@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/logo.png" alt="ShadowDPI logo" width="150">
+  <img src="resources/logo.png" alt="ShadowDPI logo" width="130">
 </p>
 
 <h1 align="center">ShadowDPI</h1>
