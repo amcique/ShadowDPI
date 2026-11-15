@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
   "version": "0.3.0",
-  "description": "Deep Packet Inspection circumvention for Windows x64 with a fraction of the CPU cost.",
+  "description": "Modern and lightweight DPI circumvention utility for Windows x64.",
   "homepage": "https://github.com/amcique/ShadowDPI",
   "license": "GPL-3.0-only",
   "architecture": {
     "64bit": {
       "url": "https://github.com/amcique/ShadowDPI/releases/download/v0.3.0/shadowdpi-0.3.0-x64.zip",
-      "hash": "REPLACE_WITH_SHA256_OF_shadowdpi-0.3.0-x64.zip",
+      "hash": "73fbf118ff94b72fd81002e33687c43e30e536c490ced78787bd7b6ede8c5c5f",
       "extract_dir": "shadowdpi-0.3.0-x64"
     }
   },

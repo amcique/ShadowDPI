@@ -10,14 +10,14 @@ extracts the release zip into its own directory so `shadowdpi.exe`,
 `WinDivert.dll`, and `WinDivert64.sys` stay side by side, which is what the
 runtime loader requires.
 
-One field must be filled after the release asset exists:
+The `hash` field holds the SHA-256 of the current release archive. For a new
+release, compute it and replace the value:
 
 ```powershell
-(Get-FileHash .\shadowdpi-0.3.0-x64.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash .\shadowdpi-<version>-x64.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
-Paste the result into the `"hash"` field, replacing the placeholder value, then
-test locally:
+Then test locally:
 
 ```powershell
 scoop install .\packaging\scoop\shadowdpi.json
