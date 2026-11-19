@@ -96,6 +96,45 @@ void add_unique(std::vector<std::uint16_t>& values, std::uint16_t value)
     }
 }
 
+// LDH labels with an optional trailing dot keep generated ClientHellos valid.
+[[nodiscard]] bool is_valid_fake_domain(std::string_view domain) noexcept
+{
+    if (domain.empty() || domain.size() > kMaxHostLength) {
+        return false;
+    }
+    if (domain.back() == '.') {
+        domain.remove_suffix(1);
+    }
+    if (domain.empty()) {
+        return false;
+    }
+
+    const auto is_alnum = [](char character) noexcept {
+        return (character >= 'a' && character <= 'z') ||
+               (character >= 'A' && character <= 'Z') ||
+               (character >= '0' && character <= '9');
+    };
+
+    while (!domain.empty()) {
+        const auto separator = domain.find('.');
+        const auto label = domain.substr(0, separator);
+        if (label.empty() || label.size() > 63 ||
+            !is_alnum(label.front()) || !is_alnum(label.back())) {
+            return false;
+        }
+        for (const char character : label) {
+            if (!is_alnum(character) && character != '-') {
+                return false;
+            }
+        }
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        domain.remove_prefix(separator + 1);
+    }
+    return true;
+}
+
 void enable_native(Config& config)
 {
     config.native_frag = true;
@@ -161,8 +200,11 @@ void apply_long_option(Config& config,
         config.verbose = true;
     }
     else if (name == "preset") {
-        // The upper bound is checked here; apply_preset handles the rest.
-        apply_preset(config, static_cast<int>(parse_unsigned(*value, "--preset", 9)));
+        const auto preset = parse_unsigned(*value, "--preset", 9);
+        if (preset == 0) {
+            throw CliError("--preset must be in the range 1-9");
+        }
+        apply_preset(config, static_cast<int>(preset));
     }
     else if (name == "block-passive" || name == "passive-dpi") {
         config.block_passive = true;
@@ -261,9 +303,13 @@ void apply_long_option(Config& config,
         config.https.by_sni = true;
     }
     else if (name == "fake-ttl" || name == "set-ttl") {
+        const auto ttl = parse_u8(*value, "--fake-ttl");
+        if (ttl == 0) {
+            throw CliError("--fake-ttl must be in the range 1-255");
+        }
         config.fake.enabled = true;
         config.fake.auto_ttl.enabled = false;
-        config.fake.fixed_ttl = parse_u8(*value, "--fake-ttl");
+        config.fake.fixed_ttl = ttl;
     }
     else if (name == "auto-ttl") {
         parse_auto_ttl(config, value);
@@ -298,16 +344,18 @@ void apply_long_option(Config& config,
         if (config.fake.payloads.size() >= kMaxFakePackets) {
             throw CliError("too many fake payloads (maximum is 30)");
         }
+        config.fake.enabled = true;
         config.fake.payloads.push_back(std::move(*payload));
     }
     else if (name == "fake-sni" || name == "fake-with-sni") {
         // Each mention appends one payload, so the cap is enforced per call.
-        if (value->empty() || value->size() > kMaxHostLength) {
+        if (!is_valid_fake_domain(*value)) {
             throw CliError("invalid domain name for --fake-sni");
         }
         if (config.fake.payloads.size() >= kMaxFakePackets) {
             throw CliError("too many fake payloads (maximum is 30)");
         }
+        config.fake.enabled = true;
         config.fake.payloads.push_back(make_fake_client_hello(*value));
     }
     else if (name == "fake-gen") {
@@ -321,6 +369,7 @@ void apply_long_option(Config& config,
         if (config.fake.payloads.size() + generated.size() > kMaxFakePackets) {
             throw CliError("too many fake payloads (maximum is 30)");
         }
+        config.fake.enabled = true;
         for (auto& payload : generated) {
             config.fake.payloads.push_back(std::move(payload));
         }
@@ -357,6 +406,8 @@ std::string_view require_short_value(std::string_view cluster,
 void apply_short_option(Config& config, char option)
 {
     switch (option) {
+    case '0':
+        throw CliError("--preset must be in the range 1-9");
     case 'p':
         config.block_passive = true;
         break;
@@ -568,16 +619,17 @@ std::string help_text()
         "  --frag-by-sni                  fragment immediately before SNI\n"
         "\n"
         "Fragmentation:\n"
-        "  --native-frag                  split packets into smaller TCP segments\n"
+        "  --native-frag                  split TCP segments (default size 2)\n"
         "  --reverse-frag                 send split segments in reverse order\n"
         "  --max-payload [size]           skip large TCP payloads (default 1200)\n"
         "\n"
         "Fake Request Mode:\n"
-        "  --fake-ttl <ttl>               send fake requests with a fixed TTL\n"
+        "  --fake-ttl <ttl>               fixed fake TTL (1-255)\n"
         "  --auto-ttl [a1-a2-max]         derive fake TTL from observed hops\n"
-        "  --min-ttl <hops>               minimum hop distance for fake requests\n"
+        "  --min-ttl <hops>               gate auto/fixed TTL by hop distance\n"
         "  --fake-wrong-checksum          send fake requests with a bad checksum\n"
         "  --fake-wrong-seq               send fake requests with old SEQ/ACK\n"
+        "  fake payloads need one of the TTL/damage options above\n"
         "  --fake-hex <hex>               add a fake payload from hex bytes\n"
         "  --fake-sni <domain>            add a generated ClientHello payload\n"
         "  --fake-gen <count>             add random fake payloads\n"

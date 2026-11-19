@@ -17,7 +17,8 @@ namespace sdp {
 /// Generates a Firefox-like TLS ClientHello with the requested SNI.
 [[nodiscard]] std::vector<std::byte> make_fake_client_hello(std::string_view domain);
 
-/// Generates random fake payloads of 8..(max_size-1) bytes.
+/// Generates random fake payloads of 8..(max_size-1) bytes. Requires
+/// max_size >= 9.
 [[nodiscard]] std::vector<std::vector<std::byte>> make_random_fake_payloads(
     unsigned int count,
     unsigned int max_size);

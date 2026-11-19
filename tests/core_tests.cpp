@@ -105,6 +105,22 @@ void check(bool condition, std::string_view expression, int line)
     return sdp::parse_cli(static_cast<int>(argv.size()), argv.data());
 }
 
+[[nodiscard]] sdp::Config parse(
+    const std::vector<std::string_view>& arguments)
+{
+    std::vector<std::string> storage;
+    storage.emplace_back("shadowdpi.exe");
+    for (const auto& argument : arguments) {
+        storage.emplace_back(argument);
+    }
+    std::vector<char*> argv;
+    argv.reserve(storage.size());
+    for (auto& argument : storage) {
+        argv.push_back(argument.data());
+    }
+    return sdp::parse_cli(static_cast<int>(argv.size()), argv.data());
+}
+
 [[nodiscard]] bool parse_throws(
     std::initializer_list<std::string_view> arguments)
 {
@@ -117,7 +133,53 @@ void check(bool condition, std::string_view expression, int line)
     }
 }
 
-void test_cli_defaults()
+template <typename Exception>
+[[nodiscard]] bool parse_throws_as(
+    std::initializer_list<std::string_view> arguments)
+{
+    try {
+        (void)parse(arguments);
+    }
+    catch (const Exception&) {
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+    return false;
+}
+
+template <typename Exception>
+[[nodiscard]] bool parse_throws_as(
+    const std::vector<std::string_view>& arguments)
+{
+    try {
+        (void)parse(arguments);
+    }
+    catch (const Exception&) {
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+    return false;
+}
+
+void test_config_defaults()
+{
+    const sdp::Config config;
+    CHECK(!config.block_passive);
+    CHECK(!config.block_quic);
+    CHECK(!config.native_frag);
+    CHECK(!config.http.fragment_enabled);
+    CHECK(!config.https.fragment_enabled);
+    CHECK(!config.fake.enabled);
+    CHECK(config.http.fragment_size == 0);
+    CHECK(config.https.fragment_size == 0);
+    CHECK(config.max_payload == 0);
+}
+
+void test_preset9_defaults()
 {
     const auto config = parse({});
     CHECK(config.block_quic);
@@ -131,6 +193,77 @@ void test_cli_defaults()
     CHECK(config.http.fragment_size == 2);
     CHECK(config.https.fragment_enabled);
     CHECK(config.https.fragment_size == 2);
+}
+
+void test_native_frag_defaults()
+{
+    // Standalone split flags must split both HTTP and HTTPS.
+    for (const auto* argument : {"-n", "--native-frag", "--reverse-frag",
+                                 "--http-keepalive-nowait"}) {
+        const auto config = parse({argument});
+        CHECK(config.native_frag);
+        CHECK(config.http.fragment_enabled);
+        CHECK(config.https.fragment_enabled);
+        CHECK(config.http.fragment_size == 2);
+        CHECK(config.https.fragment_size == 2);
+    }
+
+    // Explicit sizes are never overwritten by the default.
+    const auto explicit_sizes = parse({"-n", "-f", "7", "-e", "9"});
+    CHECK(explicit_sizes.http.fragment_size == 7);
+    CHECK(explicit_sizes.https.fragment_size == 9);
+}
+
+void test_fake_mode_validation()
+{
+    // Custom payloads need a neutralizer.
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-sni", "example.com"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-hex", "16030100"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-gen", "2"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--min-ttl", "5"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--min-ttl", "0"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-ttl", "0"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--set-ttl", "0"}));
+
+    // Each neutralizer works in either option order.
+    const std::vector<std::vector<std::string_view>> neutralizers{
+        {"--fake-ttl", "5"},
+        {"--auto-ttl"},
+        {"--fake-wrong-seq"},
+        {"--fake-wrong-checksum"},
+    };
+    for (const auto& neutralizer : neutralizers) {
+        std::vector<std::string_view> after{"--fake-sni", "example.com"};
+        after.insert(after.end(), neutralizer.begin(), neutralizer.end());
+        const auto first = parse(after);
+        CHECK(first.fake.enabled);
+        CHECK(first.fake.payloads.size() == 1);
+
+        std::vector<std::string_view> before = neutralizer;
+        before.push_back("--fake-sni");
+        before.push_back("example.com");
+        const auto second = parse(before);
+        CHECK(second.fake.enabled);
+        CHECK(second.fake.payloads.size() == 1);
+    }
+
+    const auto with_value =
+        parse({"--fake-sni", "example.com", "--fake-ttl", "5"});
+    CHECK(with_value.fake.fixed_ttl.has_value());
+    CHECK(*with_value.fake.fixed_ttl == 5);
+
+    // --fake-resend 0 stays a documented no-op rather than being rejected.
+    const auto no_resend =
+        parse({"--fake-sni", "example.com", "--fake-ttl", "5",
+               "--fake-resend", "0"});
+    CHECK(no_resend.fake.resend == 0);
+
+    // Domain contents are validated, not only the length.
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-sni", "bad host"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-sni", "a..b.com"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--fake-sni", "-bad.com"}));
+    CHECK(parse({"--fake-sni", "www.example.com.", "--fake-ttl", "5"})
+              .fake.payloads.size() == 1);
 }
 
 void test_cli_options()
@@ -209,6 +342,26 @@ void test_cli_options()
     CHECK(parse_throws({"--fake-gen", "0"}));
     CHECK(parse_throws({"--auto-ttl", "1-2"}));
     CHECK(parse_throws({"--preset", "10"}));
+
+    // All CLI errors carry the usage hint.
+    CHECK(parse_throws_as<sdp::CliError>({"--preset", "0"}));
+    CHECK(parse_throws_as<sdp::CliError>({"-0"}));
+    CHECK(parse_throws_as<sdp::CliError>(
+        {"--dns-addr", "8.8.8.8", "--dns-port", "0"}));
+    CHECK(parse_throws_as<sdp::CliError>(
+        {"--dnsv6-addr", "2001:4860::8888", "--dnsv6-port", "0"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--dns-port", "5353"}));
+    CHECK(parse_throws_as<sdp::CliError>({"--dnsv6-port", "5353"}));
+
+    // The 30-payload cap is shared by all custom payload options.
+    std::vector<std::string_view> many_payloads;
+    for (int index = 0; index <= sdp::kMaxFakePackets; ++index) {
+        many_payloads.push_back("--fake-gen");
+        many_payloads.push_back("1");
+    }
+    many_payloads.push_back("--fake-ttl");
+    many_payloads.push_back("5");
+    CHECK(parse_throws_as<sdp::CliError>(many_payloads));
 }
 
 void test_preset_equivalence()
@@ -310,6 +463,15 @@ void test_ttl_tracker()
     CHECK(ttl.has_value());
     CHECK(*ttl == 117);
     CHECK(!tracker.lookup_outgoing(local, remote, 50000, 443, false).has_value());
+
+    // A retransmitted SYN/ACK refreshes the stored TTL.
+    tracker.record_incoming(remote, local, 443, 50002, false, 100);
+    tracker.record_incoming(remote, local, 443, 50002, false, 90);
+    CHECK(tracker.size() == 1);
+    const auto refreshed =
+        tracker.lookup_outgoing(local, remote, 50002, 443, false);
+    CHECK(refreshed.has_value());
+    CHECK(*refreshed == 90);
 
     tracker.record_incoming(remote, local, 443, 50001, true, 55);
     CHECK(!tracker.lookup_outgoing(local, remote, 50001, 443, false).has_value());
@@ -488,7 +650,7 @@ void test_tls_helpers()
     CHECK(generated.size() == 3);
     for (const auto& fake : generated) {
         CHECK(fake.size() >= 8);
-        CHECK(fake.size() <= 207);
+        CHECK(fake.size() <= 199);
     }
 
     bool threw = false;
@@ -574,7 +736,10 @@ void test_util()
 
 int main()
 {
-    test_cli_defaults();
+    test_config_defaults();
+    test_preset9_defaults();
+    test_native_frag_defaults();
+    test_fake_mode_validation();
     test_cli_options();
     test_preset_equivalence();
     test_blacklist();

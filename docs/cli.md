@@ -75,8 +75,8 @@ and cannot fall back, use `-5` instead.
 
 | Option | Meaning |
 | --- | --- |
-| `--native-frag` | Split packets into smaller TCP segments. |
-| `--reverse-frag` | Send the split segments in reverse order. Implies `--native-frag`. |
+| `--native-frag` | Split packets into smaller TCP segments. Without any `-f`/`-e` size, defaults to split size 2 for both HTTP and HTTPS. |
+| `--reverse-frag` | Send the split segments in reverse order. Implies `--native-frag` and its default split size. |
 | `--max-payload [size]` | Limit processed payloads to those smaller than `size` bytes; GET/POST requests and TLS handshakes still pass. Without a value the limit is 1200; presets 5-9 set 1200. |
 
 ### Fake request mode
@@ -86,17 +86,21 @@ DPI accept them while the real destination discards them.
 
 | Option | Meaning |
 | --- | --- |
-| `--fake-ttl <ttl>` | Enable fake packets with a fixed TTL (0-255). |
+| `--fake-ttl <ttl>` | Enable fake packets with a fixed TTL (1-255). Zero is rejected: a TTL of zero would send nothing. |
 | `--auto-ttl [first-second-max]` | Derive the fake TTL from observed hop counts. Without a value the range is `1-4-10`; a single value sets both bounds to that value. Implies `--min-ttl 3` when no minimum was given. |
-| `--min-ttl <hops>` | Minimum hop distance between the client and the fake packet's expiry. |
+| `--min-ttl <hops>` | Suppress fake packets when the observed hop distance is too small. Requires a TTL option. |
 | `--fake-wrong-checksum` | Give fake packets a deliberately invalid checksum. |
 | `--fake-wrong-seq` | Give fake packets an old sequence/acknowledgement number. |
-| `--fake-hex <hex>` | Add a custom fake payload from hexadecimal bytes. |
-| `--fake-sni <domain>` | Add a generated ClientHello for `domain`. |
-| `--fake-gen <count>` | Add `count` random fake payloads. |
+| `--fake-hex <hex>` | Add a custom fake payload from hexadecimal bytes. Enables fake mode. |
+| `--fake-sni <domain>` | Add a generated ClientHello for `domain` (LDH labels, optional trailing dot). Enables fake mode. |
+| `--fake-gen <count>` | Add `count` random fake payloads. Enables fake mode. |
 | `--fake-resend <count>` | Send each fake payload `count` times (default 1; 0 disables the effect). |
 
-At most 30 custom or generated fake payloads can be configured.
+At most 30 custom or generated fake payloads can be configured. Custom payload
+options enable fake mode and need a neutralizer: `--fake-ttl`, `--auto-ttl`,
+`--fake-wrong-seq`, or `--fake-wrong-checksum`. Configurations without one are
+rejected. `--auto-ttl` emits nothing until a SYN/ACK is observed; a made-up TTL
+could deliver the decoy to the server.
 
 ### Host selection
 
@@ -187,8 +191,10 @@ Signal readiness to another program after the filters are open:
 
 - Fragment sizes are 16-bit values; repeated fragment options keep the last
   value.
-- `--native-frag` requires at least one HTTP or HTTPS fragment size to be set.
+- `--native-frag`, `--reverse-frag`, and `-n` default to HTTP and HTTPS split
+  size 2 when no `-f`/`-e` size was given; explicit sizes are never overwritten.
 - `--reverse-frag` and `--frag-by-sni` enable native splitting automatically.
+- Fake mode requires a neutralizer; `--min-ttl` alone is not one.
 - `--http-extra-space` also removes the space after `Host:`.
 - Configuration errors are printed to standard error and the process exits
   with a non-zero status.

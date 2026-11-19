@@ -1,7 +1,5 @@
 #include "shadowdpi/config.hpp"
 
-#include <stdexcept>
-
 namespace sdp {
 namespace {
 
@@ -85,7 +83,7 @@ void apply_preset(Config& config, int preset)
         break;
 
     default:
-        throw std::invalid_argument("preset must be in the range 1-9");
+        throw CliError("preset must be in the range 1-9");
     }
 }
 
@@ -110,11 +108,25 @@ void finalize_config(Config& config)
         config.native_frag = true;
     }
 
+    // The engine only splits when *_fragment_enabled is set. Standalone
+    // native-frag flags get the preset default; explicit sizes are kept.
     if (config.native_frag && !config.http.fragment_enabled &&
         !config.https.fragment_enabled) {
-        throw std::invalid_argument(
-            "native fragmentation is enabled but no HTTP or HTTPS "
-            "fragmentation size is set");
+        config.http.fragment_enabled = true;
+        config.http.fragment_size = 2;
+        config.https.fragment_enabled = true;
+        config.https.fragment_size = 2;
+    }
+
+    // Check after parsing: later options can reset the TTL source.
+    // --min-ttl is a gate, not a TTL source.
+    if (config.fake.enabled && config.fake.resend != 0 &&
+        !config.fake.fixed_ttl.value_or(0) &&
+        !config.fake.auto_ttl.enabled &&
+        !config.fake.wrong_checksum && !config.fake.wrong_seq) {
+        throw CliError(
+            "fake request mode needs a neutralizer: --fake-ttl, --auto-ttl, "
+            "--fake-wrong-seq, or --fake-wrong-checksum");
     }
 
     if (config.fake.auto_ttl.enabled) {
@@ -133,16 +145,16 @@ void finalize_config(Config& config)
     }
 
     if (config.dns.v4_server && config.dns.v4_port == 0) {
-        throw std::invalid_argument("DNS IPv4 port must be greater than zero");
+        throw CliError("DNS IPv4 port must be greater than zero");
     }
     if (config.dns.v6_server && config.dns.v6_port == 0) {
-        throw std::invalid_argument("DNS IPv6 port must be greater than zero");
+        throw CliError("DNS IPv6 port must be greater than zero");
     }
     if (!config.dns.v4_server && config.dns.v4_port != 53) {
-        throw std::invalid_argument("--dns-port requires --dns-addr");
+        throw CliError("--dns-port requires --dns-addr");
     }
     if (!config.dns.v6_server && config.dns.v6_port != 53) {
-        throw std::invalid_argument("--dnsv6-port requires --dnsv6-addr");
+        throw CliError("--dnsv6-port requires --dnsv6-addr");
     }
 }
 

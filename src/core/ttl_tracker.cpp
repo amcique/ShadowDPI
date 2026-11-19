@@ -48,7 +48,13 @@ void TtlTracker::record_incoming(
         // loses its auto-TTL hint.
         entries_.erase(entries_.begin());
     }
-    entries_.try_emplace(key, Entry{ttl, Clock::now()});
+    const auto [iterator, inserted] =
+        entries_.try_emplace(key, Entry{ttl, Clock::now()});
+    if (!inserted) {
+        // Retransmissions refresh the hop estimate and its timestamp.
+        iterator->second.ttl = ttl;
+        iterator->second.timestamp = Clock::now();
+    }
 }
 
 std::optional<std::uint8_t> TtlTracker::lookup_outgoing(

@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "shadowdpi/cli.hpp"
 #include "shadowdpi/config.hpp"
 #include "shadowdpi/fake_payloads.hpp"
 #include "shadowdpi/filter.hpp"
@@ -931,6 +932,36 @@ void test_engine_native_fragments()
     CHECK(ntohl(tail.tcp->SeqNum) == 1010);
 }
 
+void test_engine_standalone_native_frag()
+{
+    // -n alone must split both HTTP and HTTPS.
+    char program[] = "shadowdpi.exe";
+    char flag[] = "-n";
+    char* argv[] = {program, flag};
+    const sdp::Config config = sdp::parse_cli(2, argv);
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    const auto request = byte_string(
+        "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n");
+    sdp::win::PacketBuffer http_packet;
+    make_tcp_payload_packet(http_packet, true, 50000, 80, request);
+    CHECK(!engine.process(http_packet).reinject);
+    CHECK(sink.packets.size() == 2);
+
+    sink.packets.clear();
+    std::array<std::byte, 32> client_hello{};
+    client_hello[0] = std::byte{0x16};
+    client_hello[1] = std::byte{0x03};
+    client_hello[2] = std::byte{0x01};
+    sdp::win::PacketBuffer tls_packet;
+    make_tcp_payload_packet(tls_packet, true, 50001, 443, client_hello);
+    CHECK(!engine.process(tls_packet).reinject);
+    CHECK(sink.packets.size() == 2);
+}
+
 void test_engine_fragment_flags()
 {
     sdp::Config config;
@@ -1253,6 +1284,7 @@ int main()
     test_packet_parsing_fuzz();
     test_engine_http_rewrites();
     test_engine_native_fragments();
+    test_engine_standalone_native_frag();
     test_engine_fragment_flags();
     test_engine_send_failure();
     test_engine_fake_packet();

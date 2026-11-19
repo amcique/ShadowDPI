@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "shadowdpi/error.hpp"
 #include "shadowdpi/types.hpp"
 
 namespace sdp {

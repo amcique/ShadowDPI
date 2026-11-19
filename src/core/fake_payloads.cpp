@@ -179,12 +179,13 @@ std::vector<std::vector<std::byte>> make_random_fake_payloads(
     unsigned int count,
     unsigned int max_size)
 {
-    if (count == 0 || count > kMaxFakePackets || max_size < 2) {
+    if (count == 0 || count > kMaxFakePackets || max_size < 9) {
         throw std::invalid_argument("invalid fake payload generator parameters");
     }
 
-    std::uniform_int_distribution<unsigned int> length_distribution(0,
-                                                                    max_size - 1);
+    // 8..(max_size-1) bytes.
+    std::uniform_int_distribution<unsigned int> length_distribution(
+        0, max_size - 9);
     std::uniform_int_distribution<unsigned int> byte_distribution(0, 0xFE);
 
     std::vector<std::vector<std::byte>> result;
