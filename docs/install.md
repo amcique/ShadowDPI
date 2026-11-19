@@ -219,12 +219,12 @@ A successful install writes a file like this:
 {
   "product": "ShadowDPI",
   "schemaVersion": 1,
-  "version": "0.3.0",
-  "versionText": "ShadowDPI 0.3.0 (C++20)",
+  "version": "0.4.0",
+  "versionText": "ShadowDPI 0.4.0 (C++20)",
   "installPath": "C:\\Program Files\\ShadowDPI",
   "installedUtc": "2026-11-15T00:00:00Z",
   "updatedUtc": "2026-11-15T00:00:00Z",
-  "sourcePath": "C:\\Users\\you\\Downloads\\shadowdpi-0.3.0-x64",
+  "sourcePath": "C:\\Users\\you\\Downloads\\shadowdpi-0.4.0-x64",
   "payload": [
     "shadowdpi.exe",
     "WinDivert.dll",

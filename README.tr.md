@@ -404,15 +404,15 @@ Her sürüm `shadowdpi-<sürüm>-x64.zip` dosyasını ve eşleşen `.sha256` dos
 yayımlar:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.3.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.3.0-x64.sha256 | Select-String 'shadowdpi-0.3.0-x64.zip'
+Get-FileHash .\shadowdpi-0.4.0-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.4.0-x64.sha256 | Select-String 'shadowdpi-0.4.0-x64.zip'
 ```
 
 Arşiv ayrıca GitHub derleme kaynağı kanıtı ile imzalanır; bu kayıt arşivi hangi
 iş akışının, hangi commit'in ve hangi çalıştırıcının ürettiğini gösterir:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.3.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.4.0-x64.zip --repo amcique/ShadowDPI
 ```
 
 İki denetimden biri başarısız olursa ikiliyi çalıştırmayın.
