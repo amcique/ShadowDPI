@@ -23,12 +23,15 @@ length-prefixed and use a versioned binary protocol defined in
 `include/shadowdpi/ipc.hpp`. The protocol version is carried in every message
 and in the handshake, so a newer GUI can detect an older service cleanly.
 
-The service builds the pipe DACL from `build_pipe_sddl()`. By default only
-SYSTEM and Administrators are granted access. An optional registry value
-`HKLM\Software\ShadowDPI\IpcAllowedSid` can add one user SID, allowing an
-installer to delegate routine control to a non-elevated user. Everyone else is
-denied implicitly. The caller PID in the handshake is informational and is
-never used as a credential.
+The service builds the pipe DACL from `build_pipe_sddl()`. SYSTEM and
+Administrators have full access; Authenticated Users can connect to read
+status. No command is authorized by connection alone: the server impersonates
+each caller and checks membership in the Administrators group or in the
+optional `HKLM\Software\ShadowDPI\IpcAllowedSid` principal before allowing
+`ApplyConfig`, `Stop`, `Start`, `RunScan` or `GetLog`. `Handshake` and
+`GetStatus` are available to any authenticated caller. Without that registry
+value, a standard user can observe but not change anything. The caller PID in
+the handshake is informational and is never used as a credential.
 
 Commands:
 
@@ -45,10 +48,13 @@ Manager, not through IPC, because a stopped service has no pipe.
 
 ## Configuration ownership
 
-Persisted settings live in `%ProgramData%\ShadowDPI\config.json`. The file
-holds an `arguments` array containing the same tokens the CLI accepts. The
-service validates every write with `parse_cli()` and `finalize_config()` before
-saving, so all validation, presets and `CliError` messages stay single-sourced.
+Persisted settings live in `%ProgramData%\ShadowDPI\config.json`. The file has
+the shape `{"arguments":"shadowdpi.exe\u0000-9\u0000..."}`: one JSON string
+whose NUL-separated tokens are the same arguments the CLI accepts. The service
+validates every write with `parse_cli()` and `finalize_config()` before saving,
+so all validation, presets and `CliError` messages stay single-sourced. On
+startup the service loads the file and uses it instead of the service command
+line when it is present.
 
 Writes use a temporary file and a rename, so an interrupted update cannot leave
 a half-written config. The installer is responsible for setting the directory

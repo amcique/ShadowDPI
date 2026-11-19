@@ -52,24 +52,45 @@ void report_status() noexcept
     }
     char buffer[256]{};
     DWORD length = sizeof(buffer);
-    const LONG result = RegQueryValueExA(key, "IpcAllowedSid", nullptr,
-                                         nullptr,
+    DWORD type = 0;
+    const LONG result = RegQueryValueExA(key, "IpcAllowedSid", nullptr, &type,
                                          reinterpret_cast<LPBYTE>(buffer),
                                          &length);
     RegCloseKey(key);
-    if (result != ERROR_SUCCESS || length == 0 || length >= sizeof(buffer)) {
+    if (result != ERROR_SUCCESS || length == 0 || length >= sizeof(buffer) ||
+        (type != REG_SZ && type != REG_EXPAND_SZ)) {
         return std::nullopt;
     }
-    return std::string(buffer, length - 1);
+    if (buffer[length - 1] == '\0') {
+        --length;
+    }
+    return std::string(buffer, length);
 }
 
 [[nodiscard]] sdp::ipc::Response handle_ipc_request(
-    const sdp::ipc::Request& request) noexcept
+    const sdp::ipc::Request& request,
+    const sdp::ipc::Caller& caller) noexcept
 {
     using sdp::ipc::MessageType;
     using sdp::ipc::Response;
 
     Response response;
+    if (!caller.authenticated) {
+        response.message = "caller identity unavailable";
+        return response;
+    }
+
+    const bool privileged =
+        request.type == MessageType::ApplyConfig ||
+        request.type == MessageType::Start ||
+        request.type == MessageType::Stop ||
+        request.type == MessageType::RunScan ||
+        request.type == MessageType::GetLog;
+    if (privileged && !caller.admin && !caller.config_writer) {
+        response.message = "not permitted";
+        return response;
+    }
+
     switch (request.type) {
     case MessageType::Handshake:
         response.ok = true;
@@ -226,24 +247,34 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         report_status();
     });
 
+    const auto config_writer = read_allowed_sid();
     std::unique_ptr<sdp::ipc::IpcServer> ipc;
     std::string ipc_error;
     ipc = std::make_unique<sdp::ipc::IpcServer>(
-        "shadowdpi", sdp::ipc::build_pipe_sddl(read_allowed_sid()));
+        "shadowdpi", sdp::ipc::build_pipe_sddl(config_writer), config_writer);
     ipc->set_handler(handle_ipc_request);
     if (!ipc->start(ipc_error)) {
         OutputDebugStringA(("ShadowDPI IPC unavailable: " + ipc_error).c_str());
     }
 
+    std::vector<std::string> effective_arguments = g_arguments;
+    std::string config_error;
+    const auto stored =
+        sdp::ipc::load_config(sdp::ipc::default_config_path(), config_error);
+    if (stored && !stored->empty()) {
+        effective_arguments = *stored;
+    }
+
     std::vector<char*> argv;
-    argv.reserve(g_arguments.size() + 1);
-    for (auto& argument : g_arguments) {
+    argv.reserve(effective_arguments.size() + 1);
+    for (auto& argument : effective_arguments) {
         argv.push_back(argument.data());
     }
     argv.push_back(nullptr);
 
-    const int result = run_application(static_cast<int>(g_arguments.size()),
-                                       argv.data());
+    const int result =
+        run_application(static_cast<int>(effective_arguments.size()),
+                        argv.data());
 
     if (ipc) {
         ipc->stop();

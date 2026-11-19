@@ -97,6 +97,15 @@ void test_malformed()
     bad_version[4] = std::byte{9};
     CHECK(!decode_request(bad_version).has_value());
 
+    auto unknown_type = encode_request(Request{});
+    unknown_type[6] = std::byte{0xFF};
+    unknown_type[7] = std::byte{0xFF};
+    CHECK(!decode_request(unknown_type).has_value());
+
+    auto trailing = encode_request(Request{});
+    trailing.push_back(std::byte{0});
+    CHECK(!decode_request(trailing).has_value());
+
     auto truncated = encode_request(Request{1, MessageType::GetStatus,
                                             std::vector<std::byte>(4)});
     truncated.pop_back();
@@ -116,6 +125,14 @@ void test_malformed()
     bad_response[12] = std::byte{2}; // invalid ok byte
     MessageType type{};
     CHECK(!decode_response(bad_response, type).has_value());
+
+    const auto wrong_type =
+        encode_response(Response{true, "x"}, MessageType::Handshake);
+    CHECK(!decode_response(wrong_type, type).has_value());
+
+    Response oversized_response;
+    oversized_response.message.resize(kIpcMaxPayload + 1);
+    CHECK(encode_response(oversized_response, MessageType::Response).empty());
 }
 
 void test_sddl()
@@ -124,8 +141,8 @@ void test_sddl()
     CHECK(!admin_only.empty());
     CHECK(admin_only.find("(A;;GA;;;SY)") != std::string::npos);
     CHECK(admin_only.find("(A;;GA;;;BA)") != std::string::npos);
-    CHECK(admin_only.find("(A;;") == admin_only.find("(A;;GA;;;SY)"));
-
+    CHECK(admin_only.find("(A;;GRGW;;;AU)") != std::string::npos);
+    CHECK(sdp::ipc::build_pipe_sddl("S-1-5-21-1);(D;;GA;;;WD").empty());
     CHECK(sdp::ipc::build_pipe_sddl("not-a-sid").empty());
     const auto with_user = sdp::ipc::build_pipe_sddl("S-1-5-21-1-2-3-1001");
     CHECK(!with_user.empty());
@@ -143,7 +160,8 @@ void test_config_store()
     const auto path = directory / "config.json";
 
     const std::vector<std::string> arguments{
-        "shadowdpi.exe", "-9", "--fake-hex", "00ff"};
+        "shadowdpi.exe", "-9", "--fake-hex", "00ff",
+        "a\"b\\c\td", "naïve"};
     std::string error;
     CHECK(save_config(path, arguments, error));
     const auto loaded = load_config(path, error);
@@ -155,6 +173,12 @@ void test_config_store()
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << "{ broken }";
+    }
+    CHECK(!load_config(path, error).has_value());
+
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"arguments\":\"\\u00zz\"}";
     }
     CHECK(!load_config(path, error).has_value());
 
@@ -174,8 +198,8 @@ void test_pipe()
 
     const std::string name =
         "shadowdpi-test-" + std::to_string(GetCurrentProcessId());
-    IpcServer server(name, build_pipe_sddl(sid));
-    server.set_handler([](const Request& request) {
+    IpcServer server(name, build_pipe_sddl(sid), sid);
+    server.set_handler([](const Request& request, const Caller&) {
         Response response;
         response.ok = true;
         response.message = "pong:" + std::to_string(
@@ -207,7 +231,23 @@ void test_pipe()
         }
     }
 
+    auto second = IpcClient::connect(name, error);
+    CHECK(second.has_value());
+    if (second) {
+        MessageType type{};
+        const auto response = second->round_trip(
+            Request{GetCurrentProcessId(), MessageType::GetStatus, {}},
+            type, error);
+        CHECK(response.has_value());
+        if (response) {
+            CHECK(response->message == "pong:2");
+        }
+    }
+
+    const auto start = std::chrono::steady_clock::now();
     server.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    CHECK(elapsed < std::chrono::seconds(2));
 }
 
 } // namespace

@@ -24,15 +24,22 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
     return true;
 }
 
-[[nodiscard]] bool read_exact(HANDLE handle, void* data, DWORD length) noexcept
+[[nodiscard]] bool read_exact(HANDLE handle,
+                              void* data,
+                              DWORD length,
+                              const std::atomic<bool>* stop = nullptr) noexcept
 {
     auto* bytes = static_cast<std::byte*>(data);
     DWORD received = 0;
-    for (int idle = 0; idle < 500 && received < length; ++idle) {
+    int idle = 0;
+    while (received < length) {
+        if (stop != nullptr && stop->load(std::memory_order_acquire)) {
+            return false;
+        }
         DWORD current = 0;
         if (!ReadFile(handle, bytes + received, length - received, &current,
                       nullptr)) {
-            if (GetLastError() == ERROR_NO_DATA) {
+            if (GetLastError() == ERROR_NO_DATA && ++idle <= 500) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
@@ -42,8 +49,9 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
             return false;
         }
         received += current;
+        idle = 0;
     }
-    return received == length;
+    return true;
 }
 
 [[nodiscard]] bool write_all(HANDLE handle,
@@ -71,10 +79,12 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
     return value <= kMaxFrame ? static_cast<DWORD>(value) : 0;
 }
 
-[[nodiscard]] std::vector<std::byte> read_frame(HANDLE handle) noexcept
+[[nodiscard]] std::vector<std::byte> read_frame(
+    HANDLE handle,
+    const std::atomic<bool>* stop = nullptr) noexcept
 {
     std::uint32_t raw_length = 0;
-    if (!read_exact(handle, &raw_length, sizeof(raw_length))) {
+    if (!read_exact(handle, &raw_length, sizeof(raw_length), stop)) {
         return {};
     }
     const DWORD length = frame_length(raw_length);
@@ -82,10 +92,44 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
         return {};
     }
     std::vector<std::byte> data(length);
-    if (!read_exact(handle, data.data(), length)) {
+    if (!read_exact(handle, data.data(), length, stop)) {
         return {};
     }
     return data;
+}
+
+[[nodiscard]] Caller identify_caller(
+    HANDLE pipe,
+    const std::optional<std::string>& config_writer_sid) noexcept
+{
+    Caller caller;
+    if (!ImpersonateNamedPipeClient(pipe)) {
+        return caller;
+    }
+    caller.authenticated = true;
+
+    PSID administrators = nullptr;
+    if (ConvertStringSidToSidA("S-1-5-32-544", &administrators)) {
+        BOOL member = FALSE;
+        if (CheckTokenMembership(nullptr, administrators, &member)) {
+            caller.admin = member != FALSE;
+        }
+        FreeSid(administrators);
+    }
+
+    if (config_writer_sid) {
+        PSID writer = nullptr;
+        if (ConvertStringSidToSidA(config_writer_sid->c_str(), &writer)) {
+            BOOL member = FALSE;
+            if (CheckTokenMembership(nullptr, writer, &member)) {
+                caller.config_writer = member != FALSE;
+            }
+            FreeSid(writer);
+        }
+    }
+
+    RevertToSelf();
+    return caller;
 }
 
 [[nodiscard]] bool write_frame(HANDLE handle,
@@ -104,7 +148,9 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 std::string build_pipe_sddl(
     const std::optional<std::string>& allowed_sid) noexcept
 {
-    std::string sddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+    // Authenticated users may connect and read status. Privileged commands
+    // are authorized separately after impersonating the caller.
+    std::string sddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)";
     if (allowed_sid) {
         if (!valid_sid(*allowed_sid)) {
             return {};
@@ -119,9 +165,12 @@ std::string pipe_name(std::string_view base)
     return "\\\\.\\pipe\\" + std::string(base);
 }
 
-IpcServer::IpcServer(std::string name, std::string sddl)
+IpcServer::IpcServer(std::string name,
+                     std::string sddl,
+                     std::optional<std::string> config_writer_sid)
     : name_(pipe_name(name))
     , sddl_(std::move(sddl))
+    , config_writer_sid_(std::move(config_writer_sid))
 {
 }
 
@@ -197,7 +246,7 @@ void IpcServer::stop() noexcept
 
 void IpcServer::serve_client() noexcept
 {
-    const std::vector<std::byte> frame = read_frame(pipe_);
+    const std::vector<std::byte> frame = read_frame(pipe_, &stop_);
     if (frame.empty()) {
         return;
     }
@@ -206,6 +255,7 @@ void IpcServer::serve_client() noexcept
         return;
     }
 
+    const Caller caller = identify_caller(pipe_, config_writer_sid_);
     Response response;
     MessageType response_type = MessageType::Error;
     Handler handler;
@@ -214,7 +264,7 @@ void IpcServer::serve_client() noexcept
         handler = handler_;
     }
     if (handler) {
-        response = handler(*request);
+        response = handler(*request, caller);
         if (response.ok) {
             response_type = MessageType::Response;
         }

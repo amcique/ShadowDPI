@@ -63,7 +63,9 @@ void put_u32(std::vector<std::byte>& out, std::uint32_t value)
         !take_u16(data, offset, raw_type)) {
         return false;
     }
-    if (magic != kIpcMagic || version != kIpcVersion) {
+    if (magic != kIpcMagic || version != kIpcVersion ||
+        raw_type < static_cast<std::uint16_t>(MessageType::Handshake) ||
+        raw_type > static_cast<std::uint16_t>(MessageType::Error)) {
         return false;
     }
     type = static_cast<MessageType>(raw_type);

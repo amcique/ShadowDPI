@@ -446,8 +446,6 @@ void Application::note_skipped_packet()
 
 int run_application(int argc, char* argv[])
 {
-    ShutdownCoordinator::instance().reset();
-
     try {
         Config config = parse_cli(argc, argv);
         Application application{std::move(config)};

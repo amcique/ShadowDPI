@@ -27,11 +27,19 @@ namespace sdp::ipc {
 
 [[nodiscard]] std::string pipe_name(std::string_view base);
 
+struct Caller {
+    bool authenticated{false};
+    bool admin{false};
+    bool config_writer{false};
+};
+
 class IpcServer {
 public:
-    using Handler = std::function<Response(const Request&)>;
+    using Handler = std::function<Response(const Request&, const Caller&)>;
 
-    IpcServer(std::string name, std::string sddl);
+    IpcServer(std::string name,
+              std::string sddl,
+              std::optional<std::string> config_writer_sid);
     ~IpcServer();
 
     IpcServer(const IpcServer&) = delete;
@@ -48,6 +56,7 @@ private:
 
     std::string name_;
     std::string sddl_;
+    std::optional<std::string> config_writer_sid_;
     HANDLE pipe_{INVALID_HANDLE_VALUE};
     std::atomic<bool> stop_{false};
     std::thread thread_;

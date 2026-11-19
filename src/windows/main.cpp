@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "lifecycle.hpp"
 #include "service.hpp"
 #include "win_headers.hpp"
 
@@ -31,6 +32,10 @@ int main(int argc, char* argv[])
 {
     // Only load DLLs from safe locations, never from the current directory.
     restrict_dll_search_path();
+
+    // Reset before the service dispatcher starts, so an early IPC stop request
+    // is not cleared after the service has begun starting.
+    sdp::win::ShutdownCoordinator::instance().reset();
 
     if (const auto code = sdp::win::run_as_service_if_requested(argc, argv)) {
         return *code;
