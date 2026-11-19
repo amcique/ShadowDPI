@@ -36,6 +36,17 @@ struct Response {
     std::string message;
 };
 
+struct Caller {
+    bool authenticated{false};
+    bool admin{false};
+    bool config_writer{false};
+};
+
+[[nodiscard]] bool requires_privilege(MessageType type) noexcept;
+
+[[nodiscard]] bool caller_may_run(const Caller& caller,
+                                  MessageType type) noexcept;
+
 [[nodiscard]] std::vector<std::byte> encode_request(const Request& request);
 [[nodiscard]] std::optional<Request> decode_request(
     std::span<const std::byte> data);

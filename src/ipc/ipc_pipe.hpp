@@ -27,12 +27,6 @@ namespace sdp::ipc {
 
 [[nodiscard]] std::string pipe_name(std::string_view base);
 
-struct Caller {
-    bool authenticated{false};
-    bool admin{false};
-    bool config_writer{false};
-};
-
 class IpcServer {
 public:
     using Handler = std::function<Response(const Request&, const Caller&)>;

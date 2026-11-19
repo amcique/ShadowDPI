@@ -276,7 +276,7 @@ void IpcServer::serve_client() noexcept
         // Wait for the client to drain the reply. DisconnectNamedPipe discards
         // unread data, so leaving before this point can lose the response.
         std::byte acknowledgment{};
-        (void)read_exact(pipe_, &acknowledgment, 1);
+        (void)read_exact(pipe_, &acknowledgment, 1, &stop_);
     }
 }
 

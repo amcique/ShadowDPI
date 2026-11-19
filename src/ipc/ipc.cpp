@@ -74,6 +74,29 @@ void put_u32(std::vector<std::byte>& out, std::uint32_t value)
 
 } // namespace
 
+bool requires_privilege(MessageType type) noexcept
+{
+    switch (type) {
+    case MessageType::ApplyConfig:
+    case MessageType::Start:
+    case MessageType::Stop:
+    case MessageType::RunScan:
+    case MessageType::GetLog:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool caller_may_run(const Caller& caller, MessageType type) noexcept
+{
+    if (!caller.authenticated) {
+        return false;
+    }
+    return !requires_privilege(type) || caller.admin ||
+           caller.config_writer;
+}
+
 std::vector<std::byte> encode_request(const Request& request)
 {
     if (request.payload.size() > kIpcMaxPayload) {

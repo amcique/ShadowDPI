@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "shadowdpi/ipc.hpp"
@@ -186,6 +187,30 @@ void test_config_store()
     std::filesystem::remove_all(directory, ignored);
 }
 
+void test_authorization()
+{
+    using namespace sdp::ipc;
+
+    CHECK(requires_privilege(MessageType::ApplyConfig));
+    CHECK(requires_privilege(MessageType::Stop));
+    CHECK(requires_privilege(MessageType::RunScan));
+    CHECK(!requires_privilege(MessageType::Handshake));
+    CHECK(!requires_privilege(MessageType::GetStatus));
+
+    CHECK(!caller_may_run(Caller{}, MessageType::GetStatus));
+
+    const Caller reader{true, false, false};
+    CHECK(caller_may_run(reader, MessageType::Handshake));
+    CHECK(caller_may_run(reader, MessageType::GetStatus));
+    CHECK(!caller_may_run(reader, MessageType::ApplyConfig));
+    CHECK(!caller_may_run(reader, MessageType::Stop));
+
+    const Caller admin{true, true, false};
+    CHECK(caller_may_run(admin, MessageType::ApplyConfig));
+    const Caller writer{true, false, true};
+    CHECK(caller_may_run(writer, MessageType::Stop));
+}
+
 void test_pipe()
 {
     using namespace sdp::ipc;
@@ -244,10 +269,39 @@ void test_pipe()
         }
     }
 
+    // A client that never acknowledges must not delay shutdown.
+    HANDLE silent = INVALID_HANDLE_VALUE;
+    for (int attempt = 0;
+         attempt < 20 && silent == INVALID_HANDLE_VALUE;
+         ++attempt) {
+        silent = CreateFileA(pipe_name(name).c_str(),
+                             GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                             OPEN_EXISTING, 0, nullptr);
+        if (silent == INVALID_HANDLE_VALUE &&
+            GetLastError() != ERROR_FILE_NOT_FOUND &&
+            GetLastError() != ERROR_PIPE_BUSY) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK(silent != INVALID_HANDLE_VALUE);
+    if (silent != INVALID_HANDLE_VALUE) {
+        const auto frame = encode_request(
+            Request{GetCurrentProcessId(), MessageType::Handshake, {}});
+        const auto length = static_cast<std::uint32_t>(frame.size());
+        DWORD written = 0;
+        (void)WriteFile(silent, &length, sizeof(length), &written, nullptr);
+        (void)WriteFile(silent, frame.data(), static_cast<DWORD>(frame.size()),
+                        &written, nullptr);
+    }
+
     const auto start = std::chrono::steady_clock::now();
     server.stop();
     const auto elapsed = std::chrono::steady_clock::now() - start;
     CHECK(elapsed < std::chrono::seconds(2));
+    if (silent != INVALID_HANDLE_VALUE) {
+        CloseHandle(silent);
+    }
 }
 
 } // namespace
@@ -257,6 +311,7 @@ int main()
     test_protocol();
     test_malformed();
     test_sddl();
+    test_authorization();
     test_config_store();
     test_pipe();
 

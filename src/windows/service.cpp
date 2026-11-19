@@ -42,7 +42,8 @@ void report_status() noexcept
     }
 }
 
-/// Optional delegation added by the installer. Absent means admins only.
+/// Optional privileged-command delegation. Absent means admins only; status
+/// reads remain available to authenticated users either way.
 [[nodiscard]] std::optional<std::string> read_allowed_sid() noexcept
 {
     HKEY key = nullptr;
@@ -79,14 +80,7 @@ void report_status() noexcept
         response.message = "caller identity unavailable";
         return response;
     }
-
-    const bool privileged =
-        request.type == MessageType::ApplyConfig ||
-        request.type == MessageType::Start ||
-        request.type == MessageType::Stop ||
-        request.type == MessageType::RunScan ||
-        request.type == MessageType::GetLog;
-    if (privileged && !caller.admin && !caller.config_writer) {
+    if (!sdp::ipc::caller_may_run(caller, request.type)) {
         response.message = "not permitted";
         return response;
     }
