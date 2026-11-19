@@ -133,7 +133,6 @@ jobs:
       - name: Validate packaging manifests
         shell: pwsh
         run: |
-          winget validate --manifest packaging/winget/amcique.ShadowDPI/0.3.0
           $null = Get-Content packaging/scoop/shadowdpi.json -Raw | ConvertFrom-Json
 
       # CTest hides output of passing tests; run the benchmark once more so the

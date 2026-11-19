@@ -32,64 +32,9 @@ regular release zip.
 To publish, add the manifest to a bucket repository (your own, or a public one
 such as `ScoopInstaller/Extras` after the project has a release history).
 
-## Winget
+## Installed layout
 
-[`winget/amcique.ShadowDPI/0.3.0`](winget/amcique.ShadowDPI/0.3.0) holds a
-validated three-file manifest for
-[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
-
-It uses `InstallerType: zip` with `NestedInstallerType: portable`. Winget
-extracts the whole archive, so `WinDivert.dll` and `WinDivert64.sys` stay next to
-`shadowdpi.exe`, and the command alias `shadowdpi` points at the executable. The
-v0.3.0 manifest was tested with winget 1.29.380 against the published release
-zip, including a full install and a `shadowdpi --version` run.
-
-### Test a manifest locally
-
-Local manifest installs are disabled by default. Enable them once from an
-elevated shell:
-
-```powershell
-winget settings --enable LocalManifestFiles
-```
-
-Validate and install from a normal, non-elevated shell. A portable package
-installs for the current user, and an elevated shell cannot uninstall it:
-
-```powershell
-winget validate --manifest .\packaging\winget\amcique.ShadowDPI\0.3.0
-winget install --manifest .\packaging\winget\amcique.ShadowDPI\0.3.0
-winget uninstall --name ShadowDPI --exact
-```
-
-Running `shadowdpi.exe` itself needs Administrator, so launch it from an
-elevated shell; the application manifest requests elevation even for `--version`.
-
-Turn the setting off afterwards:
-
-```powershell
-winget settings --disable LocalManifestFiles
-```
-
-### Update for a new release
-
-1. Copy the previous version folder to a folder named after the new version.
-2. Update `PackageVersion` in all three files, plus `InstallerUrl` and
-   `InstallerSha256` in the installer file.
-3. Point `ReleaseNotesUrl` and `LicenseUrl` at the new tag.
-4. Validate and test as above, then submit:
-
-```powershell
-wingetcreate submit .\packaging\winget\amcique.ShadowDPI\<version>
-```
-
-Winget installs per user and does not register the service. Users who want the
-auto-start service should run `install.ps1` from the package folder as
-Administrator, or use the release zip.
-
-## Both channels
-
-Whatever the channel, the installed layout must keep these four files together:
+The installed layout must keep these four files together:
 
 ```
 shadowdpi.exe
