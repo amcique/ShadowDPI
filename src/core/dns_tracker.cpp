@@ -101,7 +101,7 @@ bool DnsTracker::handle_outgoing(
     const Key key{ipv6, local_ip, local_port, read_be16(payload.data()),
                   std::move(*question)};
 
-    if (entries_.size() >= kMaxEntries) {
+    if (entries_.size() >= kMaxEntries && entries_.find(key) == entries_.end()) {
         // Bound memory under a query flood. Evicting any entry is acceptable:
         // the corresponding response will then be treated as unmatched.
         entries_.erase(entries_.begin());

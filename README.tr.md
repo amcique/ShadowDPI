@@ -22,13 +22,12 @@
 
 ShadowDPI, bir bağlantının ilk paketlerini değiştirerek derin paket incelemesinin
 (DPI) bağlantıyı tanımasını zorlaştırır. WinDivert üzerinde normal bir program
-olarak çalışır; mevcut HTTPS şifrelemesini değiştirmez ve kendisi şifreleme
-eklemez. HTTP trafiği düz metin kalır. Uygulamalar gerçek sunucuya bağlanmaya
-devam eder.
+olarak çalışır; mevcut HTTPS şifrelemesini değiştirmez. Şifreleme eklenmez.
+HTTP trafiği düz metin kalır. Uygulamalar gerçek sunucuya bağlanmaya devam eder.
 
 HTTP ve HTTPS ile çalışır; QUIC engellenerek tarayıcının TCP'ye geçmesi
 sağlanabilir. Yerleşik strateji tarayıcısı, seçtiğiniz sitelerde farklı ayarları
-dener. Yönetici hakları gerekir, çünkü bir çekirdek sürücüsü yükler. Bu bir VPN
+dener. Yönetici hakları gerekir, çünkü bir çekirdek sürücüsü yüklenir. Bu bir VPN
 değildir: IP adresiniz değişmez ve trafiğiniz başka bir sunucudan geçmez.
 
 ## Hızlı başlangıç
@@ -74,7 +73,7 @@ sürümleri uyumlu kalsın.
   tek çekirdeğin yaklaşık %0,03'ü. GoodbyeDPI ile tam karşılaştırma
   [Performans](#performans) bölümünde.
 - **Geri alınacak bir şey yok.** ShadowDPI durursa uygulamalar çalışmaya devam
-  eder. Sertifika kurmaz ve proxy ayarlarını değiştirmez.
+  eder. Sertifika kurulmaz ve proxy ayarları değiştirilmez.
 - **Yerleşik strateji tarayıcısı.** DPI sağlayıcıya
   göre değişir ve zamanla güncellenir. `install.ps1 -Action scan` hazır ayarları
   ve seçenek birleşimlerini kendi URL listenizde dener, engellenen her adresi
@@ -105,7 +104,7 @@ farklı ödünleşmelerle çözerler ve Zapret, ShadowDPI'den çok daha fazla de
 seçeneği sunar. Hazır ayarlar sağlayıcınıza uymuyorsa onları da deneyin. Yöntem
 ve uyarılar: [docs/performance.md](docs/performance.md).
 
-## Ne yapıyor
+## Özellikler
 
 - **Pasif DPI'yi engeller.** Enjekte edilen yönlendirmeler ve TCP sıfırlamaları
   uygulamaya ulaşmadan düşürülür.
@@ -179,8 +178,8 @@ TCP'ye dönemiyorsa `-5` ile başlayın.
 
 Hazır ayarlar bir başlangıç noktasıdır, garanti değildir. Strateji tarayıcısı
 hazır ayarları ve seçenek birleşimlerini bir URL listesi üzerinde dener; zapret'in
-blockcheck aracıyla aynı temel karşılaştırmayı kullanır. Her aday için
-ayrı bir ShadowDPI süreci başlatır, `--ready-file` dosyasını bekler, URL'leri
+blockcheck aracıyla aynı temel karşılaştırmayı kullanır. Tarayıcı, her aday
+için ayrı bir ShadowDPI süreci başlatır, `--ready-file` dosyasını bekler, URL'leri
 `curl.exe` ile yoklar ve engellenen her adresi açan, çalışan bir adresi
 bozmayan ilk stratejiyi bildirir.
 
@@ -196,7 +195,7 @@ hangi DNS çözümleyicisinin kullanılacağını sorar: Cloudflare, Google, ba�
 çözümleyici veya sistem çözümleyicisi. `-DnsResolver system` sorusunu atlar,
 `-DnsAddr` ise özel adres ve port verir. Tarayıcı yönetici haklarına ve
 `curl.exe` dosyasına ihtiyaç duyar; temel ölçüm için kurulu ve çalışan
-hizmeti durdurur, sonra yeniden başlatır. Tarama düzeyleri, sonuç değerlendirmeleri,
+hizmet durdurulur ve ardından yeniden başlatılır. Tarama düzeyleri, sonuç değerlendirmeleri,
 JSON alanları ve çıkış kodları [docs/scan.md](docs/scan.md) dosyasında.
 
 Seçeneklerin tam başvurusu, takma ad tablosu, kara liste biçimi ve doğrulama
@@ -369,33 +368,33 @@ Kurulum aracının tam başvurusu [docs/install.md](docs/install.md) dosyasında
 ## Sık sorulan sorular
 
 **Windows "Windows protected your PC" diyor ve antivirüsüm uyarı veriyor.**
-Beklenen bir durum: sürüm çalıştırılabilir dosyası Authenticode ile imzalanmamış
-ve bir çekirdek sürücüsü kuruyor; itibar sistemlerinin hoşlanmadığı profil
+Beklenen bir durum: sürüm dosyası Authenticode ile imzalanmamıştır ve kurulum
+bir çekirdek sürücüsü yükler; itibar sistemlerinin hoşlanmadığı profil
 tam olarak bu. İstemeye güvenmek yerine indirmeyi doğrulayın: SHA-256 değerini
 yayımlanan `.sha256` dosyasıyla karşılaştırın, derleme kanıtını kontrol edin
 (aşağıya bakın) veya [kaynaktan derleyin](#kaynaktan-derleme-msvc-x64).
 WinDivert'ın kendisi uzun süredir geçerli şekilde imzalanmış bir sürücüdür.
 
-**Bu bir VPN mi? IP adresimi gizliyor mu?**
+**ShadowDPI bir VPN mi? IP adresimi gizliyor mu?**
 Hayır. ShadowDPI paketlerin teller üzerinde nasıl göründüğünü değiştirir, böylece
 DPI onları sınıflandırmakta zorlanır. Trafiğiniz gerçek sunucuya gerçek
-adresinizden doğrudan gider. ShadowDPI şifreleme eklemez veya kaldırmaz.
+adresinizden doğrudan gider. Şifreleme eklenmez veya kaldırılmaz.
 
-**Trafiğimi şifreliyor mu?**
-Hayır. TLS'i engellemez, sertifika kurmaz ve proxy olarak çalışmaz. Yalnızca
-paket sınırlarını, başlık boşluklarını, harf durumunu, TTL'yi ve sıra numarası
-veya sağlama toplamı alanlarını değiştirir.
+**ShadowDPI trafiğimi şifreliyor mu?**
+Hayır. Araç TLS'i engellemez, sertifika kurmaz ve proxy olarak çalışmaz. Yalnızca
+paket sınırları, başlık boşlukları, harf durumu, TTL ve sıra numarası veya
+sağlama toplamı alanları değiştirilir.
 
 **Hangi preset ile başlamalıyım?**
 `-9`. Bir şey bozulursa `-5` deneyin. İkisi de işe yaramazsa strateji
 tarayıcısını çalıştırın.
 
-**Discord, oyunlar veya diğer QUIC uygulamaları bozulur mu?**
+**QUIC engelleme Discord, oyunlar veya diğer uygulamaları etkiler mi?**
 `-9`, tarayıcıların TCP'ye geçmesi için QUIC'i engeller. Bir uygulamanın QUIC'e
 ihtiyacı varsa ve TCP'ye geçemiyorsa `-5` kullanın veya ilgili sunucuları kara
 listeye ekleyin.
 
-**Başkalarında çalışıyor da bende neden çalışmıyor?**
+**ShadowDPI başkalarında çalışıp bende neden çalışmıyor?**
 DPI sağlayıcıya özgüdür ve zamanla değişir. Evrensel bir preset yoktur; kendi
 URL listenizle tarayıcıyı çalıştırın ve çıktısıyla bir issue açın.
 

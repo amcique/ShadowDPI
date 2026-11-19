@@ -21,20 +21,20 @@
 </p>
 
 ShadowDPI changes the first packets of a connection so that deep packet
-inspection (DPI) has a harder time recognizing it. It runs as a normal program
-on top of WinDivert, leaves existing HTTPS encryption untouched, and keeps apps
-connecting to the real server. It adds no encryption of its own; HTTP traffic
-remains plaintext.
+inspection (DPI) has a harder time recognizing the traffic. The program runs on
+top of WinDivert, leaves existing HTTPS encryption untouched, and keeps apps
+connecting to the real server. No encryption is added; HTTP traffic remains
+plaintext.
 
-It works with HTTP and HTTPS, and it can block QUIC so browsers switch to TCP. A
-built-in scanner tries different settings against sites you choose. It needs
-Administrator rights because it loads a kernel driver. It is not a VPN: your IP
-address does not change, and your traffic is not sent through another server.
+The tool supports HTTP and HTTPS and can block QUIC so browsers switch to TCP. A
+built-in scanner tries different settings against sites you choose. Administrator
+rights are required because a kernel driver is loaded. ShadowDPI is not a VPN:
+your IP address does not change, and traffic is not sent through another server.
 
 ## Quick start
 
 1. Download the [latest release](https://github.com/amcique/ShadowDPI/releases).
-2. Unpack it anywhere. The archive already contains `install.ps1`,
+2. Unpack the archive in any folder. The archive contains `install.ps1`,
    `WinDivert.dll`, and `WinDivert64.sys`.
 3. From an elevated PowerShell in the unpacked folder:
 
@@ -42,12 +42,12 @@ address does not change, and your traffic is not sent through another server.
    .\install.ps1 -Action install
    ```
 
-That copies the files to `%ProgramFiles%\ShadowDPI`, registers an auto-start
-`ShadowDPI` service with `-9`, and starts it. `-Action install -NoService`
-copies the files without creating a service.
+The installer copies the files to `%ProgramFiles%\ShadowDPI`, registers an
+auto-start `ShadowDPI` service with `-9`, and starts the service. Use
+`-Action install -NoService` to copy the files without creating a service.
 
-To try it without installing, run the executable directly from an elevated
-prompt. With no arguments it applies `-9`, which is the right first attempt for
+For a no-install trial, run the executable directly from an elevated prompt.
+Without arguments, the executable applies `-9`, the right first attempt for
 most providers:
 
 ```powershell
@@ -71,8 +71,8 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
 
 - **Low CPU cost.** About 0.03% of one core on a busy 19 MiB/s link. The full
   comparison with GoodbyeDPI is in [Performance](#performance).
-- **Nothing to undo.** If ShadowDPI stops, applications keep working. It does
-  not install a certificate or change proxy settings.
+- **Nothing to undo.** If ShadowDPI stops, applications keep working. No
+  certificate is installed and no proxy settings are changed.
 - **A built-in strategy scanner.** DPI differs by provider and changes over
   time. `install.ps1 -Action scan` tests presets and option combinations
   against your own URL list and reports the first one that recovers everything.
@@ -84,7 +84,7 @@ updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
   before the first public release. The report is in
   [`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
 
-## How it compares
+## Comparison
 
 | | ShadowDPI | GoodbyeDPI | Zapret | ByeDPI |
 |---|---|---|---|---|
@@ -102,7 +102,7 @@ desync options than ShadowDPI does. If ShadowDPI's presets do not fit your
 provider, try them too. Method and caveats:
 [docs/performance.md](docs/performance.md).
 
-## What it does
+## Features
 
 - **Blocks passive DPI.** Injected redirects and TCP resets are dropped before
   they reach the application.
@@ -125,9 +125,9 @@ per gigabyte** while wall-clock transfer time stayed unchanged.
 
 ![CPU cost per GiB](docs/performance/cpu-per-gib.svg)
 
-Both variants move data at the same speed. ShadowDPI uses far fewer CPU cycles
-to do it, which leaves headroom for routers, VPNs, and other software on the
-machine.
+Both variants move data at the same speed. ShadowDPI moves the same bytes with
+far fewer CPU cycles, leaving headroom for routers, VPNs, and other software on
+the machine.
 
 ![Wall-clock parity](docs/performance/wall-clock-parity.svg)
 
@@ -150,7 +150,7 @@ in [docs/performance.md](docs/performance.md).
 
 Presets are additive groups of options; later arguments override them.
 
-| Preset | What it adds |
+| Preset | Options enabled |
 | --- | --- |
 | `-1` to `-4` | Passive blocking plus HTTP Host tricks; TLS split is 2, 40, or off |
 | `-5` | HTTP/TLS splitting, reverse order, and automatic fake TTL |
@@ -175,10 +175,10 @@ back to TCP, start from `-5` instead.
 
 Hand-picked presets are a starting point, not a guarantee. The strategy scanner
 tests presets and option combinations against a list of URLs, using the same
-baseline comparison as zapret's blockcheck. It starts one ShadowDPI process per
-candidate, waits for `--ready-file`, probes the URLs with `curl.exe`, and
-reports the first strategy that recovers every blocked URL without breaking a
-working one.
+baseline comparison as zapret's blockcheck. The scanner starts one ShadowDPI
+process per candidate, waits for `--ready-file`, probes the URLs with `curl.exe`,
+and reports the first strategy that recovers every blocked URL without breaking
+a working one.
 
 ```powershell
 .\install.ps1 -Action scan -ScanLevel quick
@@ -190,9 +190,9 @@ Scanning is also a choice in the `install.ps1` menu. Edit `tools\scan-urls.txt`
 or pass `-Urls`. In an interactive session the scanner asks which DNS resolver
 to use: Cloudflare, Google, another resolver, or the system resolver. Pass
 `-DnsResolver system` to skip the question, or `-DnsAddr` when you need a
-custom address and port. The scanner needs Administrator rights and `curl.exe`,
-and it stops an installed running service for the baseline before starting it
-again. Scan levels, result verdicts, JSON fields, and exit codes are documented
+custom address and port. The scanner needs Administrator rights and `curl.exe`;
+an installed running service is stopped for the baseline and restarted
+afterwards. Scan levels, result verdicts, JSON fields, and exit codes are documented
 in [docs/scan.md](docs/scan.md).
 
 The full option reference, alias table, blacklist format, and validation rules
@@ -203,16 +203,16 @@ are in [docs/cli.md](docs/cli.md). Installer actions, service settings, and
 
 WinDivert intercepts packets at the Windows Filtering Platform and hands them
 to user space. ShadowDPI parses the IP and TCP headers, decides whether the
-packet belongs to a connection it should touch, rewrites or splits it,
-recalculates checksums, and reinjects it. Separate drop filters handle passive
-DPI and QUIC.
+packet belongs to a connection that should be touched, rewrites or splits the
+packet, recalculates checksums, and reinjects the result. Separate drop filters
+handle passive DPI and QUIC.
 
 The implementation is split into a platform-independent core and a thin Windows
 layer:
 
 - The core owns CLI parsing, filter construction, HTTP/TLS inspection,
-  blacklists, TTL/DNS trackers, and fake payload generation. It is unit-tested
-  without WinDivert.
+  blacklists, TTL/DNS trackers, and fake payload generation. The core is
+  unit-tested without WinDivert.
 - The Windows layer owns the WinDivert handles, the packet loop, reinjection,
   and service life cycle.
 - The packet parser is tested byte-for-byte against
@@ -223,7 +223,7 @@ They do not change the meaning of HTTP or TLS, and no traffic is decrypted.
 
 ## Security
 
-ShadowDPI requires Administrator, so it is held to a higher bar than a normal
+ShadowDPI requires Administrator, which calls for a higher bar than a normal
 desktop utility.
 
 - `shadowdpi.exe` does **not** statically import `WinDivert.dll`. The DLL is
@@ -252,8 +252,8 @@ open a public issue.
   WinDivert driver is loaded on first run.
 - **No runtime to install.** The executable uses the static MSVC runtime, and
   the release includes the matching WinDivert DLL and driver. Running
-  `install.ps1` is optional; it only copies those files and registers the
-  service.
+  Running `install.ps1` is optional; the script only copies those files and
+  registers the service.
 - **PowerShell 5.1** is needed for `install.ps1`. The strategy scanner also
   needs `curl.exe`. Both ship with Windows 10 and later.
 
@@ -342,9 +342,9 @@ The complete installer reference is in [docs/install.md](docs/install.md).
   time. `-9` is a starting point, not a guarantee. Run
   [the strategy scanner](docs/scan.md) against your own URL list when the
   presets do not work.
-- **DNS redirection is fail-closed.** It must see the query to restore the
-  answer. Replies to queries started before ShadowDPI, or whose tracking entry
-  expired or was evicted under load, are dropped.
+- **DNS redirection is fail-closed.** The tracker must see the query to restore
+  the answer. Replies to queries started before ShadowDPI, or whose tracking
+  entry expired or was evicted under load, are dropped.
 - **IPv6 is implemented but not field-proven.** The benchmark host had no live
   IPv6 DPI path, so IPv6 evasion was not validated against a real provider.
 - **QUIC blocking changes behavior.** `-9` intentionally forces TCP fallback.
@@ -359,32 +359,32 @@ The complete installer reference is in [docs/install.md](docs/install.md).
 ## FAQ
 
 **Windows says "Windows protected your PC", and my antivirus is unhappy.**
-Expected. The release executable is not Authenticode-signed, and it installs a
+Expected. The release executable is not Authenticode-signed and installs a
 kernel driver, exactly the profile reputation systems dislike. Verify the
 download instead of trusting the prompt: compare the SHA-256 against the
 published `.sha256` file and check the build attestation (see below), or
 [build from source](#build-from-source-msvc-x64). WinDivert itself is a
 long-standing, legitimately signed driver.
 
-**Is this a VPN? Does it hide my IP?**
-No. ShadowDPI changes how your packets look on the wire, so DPI has a harder
-time classifying them. Your traffic still goes straight to the real server from
-your real address. ShadowDPI does not add or remove encryption.
+**Is ShadowDPI a VPN? Does it hide my IP?**
+No. ShadowDPI changes how packets look on the wire, so DPI has a harder time
+classifying them. Traffic still goes straight to the real server from your real
+address. No encryption is added or removed.
 
-**Does it decrypt my traffic?**
-No. It does not intercept TLS, install certificates, or act as a proxy. It only
-changes packet boundaries, header spacing, casing, TTL, and sequence or checksum
-fields.
+**Does ShadowDPI decrypt my traffic?**
+No. The tool does not intercept TLS, install certificates, or act as a proxy.
+Only packet boundaries, header spacing, casing, TTL, and sequence or checksum
+fields are changed.
 
 **Which preset should I start with?**
 `-9`. If something breaks, try `-5`. If neither works, run the strategy
 scanner.
 
-**Will it break Discord, games, or other QUIC apps?**
+**Will QUIC blocking break Discord, games, or other apps?**
 `-9` blocks QUIC so browsers fall back to TCP. If an application needs QUIC and
 cannot fall back, use `-5` or add the relevant hosts to a blacklist.
 
-**Why does it work for other people but not for me?**
+**Why does ShadowDPI work for others but not for me?**
 DPI is provider-specific and changes over time. There is no universal preset;
 run the scanner against your own URL list and open an issue with its output.
 
@@ -399,7 +399,7 @@ Get-Content .\shadowdpi-0.3.0-x64.sha256 | Select-String 'shadowdpi-0.3.0-x64.zi
 ```
 
 The zip is also covered by a GitHub build-provenance attestation, which records
-the workflow, commit, and runner that produced it:
+the workflow, commit, and runner that produced the archive:
 
 ```powershell
 gh attestation verify .\shadowdpi-0.3.0-x64.zip --repo amcique/ShadowDPI
@@ -410,18 +410,18 @@ If either check fails, do not run the binary.
 ## Intended use
 
 ShadowDPI is for network research, for accessing information you are entitled
-to, and for understanding how DPI equipment behaves. It is not a tool for
+to, and for understanding how DPI equipment behaves. The tool is not for
 attacking networks. Laws and network policies differ by country and by
-organization; you are responsible for using it lawfully, and nothing here is
-legal advice.
+organization; lawful use is your responsibility, and nothing here is legal
+advice.
 
 ## Credits
 
 The core idea of manipulating TCP segmentation and headers in user space to
 defeat DPI on Windows was popularized by **ValdikSS** and the
 [GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI) project. ShadowDPI follows
-that concept as an independent C++20 implementation; it contains no GoodbyeDPI
-code or assets. Credit where it is due.
+that concept as an independent C++20 implementation. The codebase contains no
+GoodbyeDPI code or assets. Credit where it is due.
 
 Packet interception is provided by **WinDivert** by
 [basil00](https://github.com/basil00/Divert), which is a substantial part of

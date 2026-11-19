@@ -82,7 +82,7 @@ struct Config {
 void apply_preset(Config& config, int preset);
 
 /// Fills in defaults and validates cross-option constraints.
-/// Throws std::invalid_argument with a user-facing message on invalid configuration.
+/// Throws CliError with a user-facing message on invalid configuration.
 void finalize_config(Config& config);
 
 } // namespace sdp

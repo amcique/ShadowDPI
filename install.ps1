@@ -2046,8 +2046,8 @@ function Invoke-CurlProbe {
         '--write-out', '%{http_code}|%{redirect_url}'
     )
 
-    # 'https' is the auto variant and uses curl's normal negotiation. Forced
-    # TLS variants pin HTTP/1.1 so only the TLS version changes between probes.
+    # 'https' is the auto variant and uses curl's normal negotiation. Other
+    # variants pin HTTP/1.1 so only the protocol or TLS version changes.
     if ($Variant -ne 'https') {
         $arguments = @('--http1.1') + $arguments
     }
