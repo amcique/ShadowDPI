@@ -627,6 +627,7 @@ void test_http_helpers()
         "User-Agent: test\r\n\r\n");
     const auto span = std::span<const std::byte>{payload};
 
+    // Header lookup stops at the header block and returns value offsets.
     const auto host = sdp::find_header(span, "\r\nHost: ");
     CHECK(host.has_value());
     CHECK(from_buffer(span.subspan(host->value_offset, host->value_length)) ==
@@ -637,6 +638,7 @@ void test_http_helpers()
     CHECK(from_buffer(span.subspan(user_agent->value_offset,
                                    user_agent->value_length)) == "test");
 
+    // The 253-byte cap applies to Host, not to User-Agent.
     const std::string long_header =
         "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: " +
         std::string(300, 'x') + "\r\n\r\n";
@@ -645,6 +647,7 @@ void test_http_helpers()
     const auto long_ua = sdp::find_header(long_span, "\r\nUser-Agent: ");
     CHECK(long_ua.has_value());
 
+    // A Host value at the end of a truncated header block is still found.
     const auto truncated = to_buffer("GET / HTTP/1.1\r\nHost: example.com");
     const auto truncated_span = std::span<const std::byte>{truncated};
     const auto truncated_host =
@@ -677,6 +680,8 @@ void test_http_helpers()
                                         real_host->value_length)) ==
           "real.example");
 
+    // The method helper reports the split position for the full request and
+    // for the tail of a request split after its first byte.
     bool fragmented = true;
     const auto method_end = sdp::find_http_method_end(payload, 2, &fragmented);
     CHECK(method_end.has_value());
@@ -705,6 +710,7 @@ void test_http_helpers()
     CHECK(extra.find("GET  / HTTP/1.1\r\nHost:example.com") !=
           std::string::npos);
 
+    // Injected redirects are matched case-insensitively for 301 and 302.
     const auto redirect = as_bytes(
         "HTTP/1.1 302 Found\r\nLocation: http://example.com/\r\n"
         "Connection: close\r\n\r\n");
