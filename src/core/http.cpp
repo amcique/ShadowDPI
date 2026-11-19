@@ -103,12 +103,15 @@ std::optional<HeaderLocation> find_header(
 
     const auto line_end =
         find_bytes(header_block.subspan(value_offset), "\r\n");
-    if (!line_end) {
+    const std::size_t value_length =
+        line_end ? *line_end : header_block.size() - value_offset;
+    if (value_length == 0) {
         return std::nullopt;
     }
 
-    const std::size_t value_length = *line_end;
-    if (value_length < 3 || value_length > kMaxHostLength) {
+    // Only Host is capped at DNS name length; User-Agent may be longer.
+    if (header_name == "\r\nHost: " &&
+        (value_length < 3 || value_length > kMaxHostLength)) {
         return std::nullopt;
     }
 

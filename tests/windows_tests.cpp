@@ -1300,6 +1300,26 @@ void test_engine_inbound_window_size()
             packet.data.data() + 20);
         CHECK(ntohs(tcp->Window) == 65535);
     }
+
+    {
+        // Extra ports are not HTTPS, even for a non-80 inbound SYN/ACK.
+        sdp::Config config;
+        config.https.fragment_enabled = true;
+        config.https.fragment_size = 30;
+        config.extra_ports.push_back(8080);
+        RecordingSink sink;
+        sdp::win::PacketEngine engine{config, logger, sink};
+
+        sdp::win::PacketBuffer packet;
+        make_tcp_control_packet(packet, false, 8080, 50000, true, true);
+
+        const auto action = engine.process(packet);
+        CHECK(action.reinject);
+        CHECK(!action.recalculate_checksums);
+        const auto* tcp = reinterpret_cast<PWINDIVERT_TCPHDR>(
+            packet.data.data() + 20);
+        CHECK(ntohs(tcp->Window) == 65535);
+    }
 }
 
 void test_engine_passive_dpi()

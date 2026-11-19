@@ -294,13 +294,13 @@ PacketAction PacketEngine::process_tcp_control(const ParsedPacket& parsed,
     // scoped by the domain blacklist. It therefore applies to every connection
     // on the handled ports; the documentation states this limitation.
     if (!config_.native_frag) {
-        if (config_.http.fragment_enabled &&
-            parsed.tcp->SrcPort == htons(kHttpPort)) {
+        const auto source_port = ntohs(parsed.tcp->SrcPort);
+        if (config_.http.fragment_enabled && source_port == kHttpPort) {
             change_window_size(parsed.tcp, config_.http.fragment_size);
             action.recalculate_checksums = true;
         }
         else if (config_.https.fragment_enabled &&
-                 parsed.tcp->SrcPort != htons(kHttpPort)) {
+                 source_port == kHttpsPort) {
             change_window_size(parsed.tcp, config_.https.fragment_size);
             action.recalculate_checksums = true;
         }

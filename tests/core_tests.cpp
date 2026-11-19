@@ -637,6 +637,23 @@ void test_http_helpers()
     CHECK(from_buffer(span.subspan(user_agent->value_offset,
                                    user_agent->value_length)) == "test");
 
+    const std::string long_header =
+        "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: " +
+        std::string(300, 'x') + "\r\n\r\n";
+    const auto long_buffer = to_buffer(long_header);
+    const auto long_span = std::span<const std::byte>{long_buffer};
+    const auto long_ua = sdp::find_header(long_span, "\r\nUser-Agent: ");
+    CHECK(long_ua.has_value());
+
+    const auto truncated = to_buffer("GET / HTTP/1.1\r\nHost: example.com");
+    const auto truncated_span = std::span<const std::byte>{truncated};
+    const auto truncated_host =
+        sdp::find_header(truncated_span, "\r\nHost: ");
+    CHECK(truncated_host.has_value());
+    CHECK(from_buffer(truncated_span.subspan(truncated_host->value_offset,
+                                             truncated_host->value_length)) ==
+          "example.com");
+
     // Header names are case-insensitive.
     const auto lowercase = to_buffer(
         "GET / HTTP/1.1\r\nhost: lowercase.example\r\n\r\n");
@@ -819,6 +836,10 @@ void test_filters()
     CHECK(quic.find("udp.DstPort == 443") != std::string::npos);
     CHECK(quic.find("udp.PayloadLength >= 1200") != std::string::npos);
     CHECK(quic.find("0x6b3343cf") != std::string::npos);
+    CHECK(quic.find("udp.Payload[0] <= 0xCF") != std::string::npos);
+    CHECK(filter.find("ipv6.SrcAddr < ff00::0") != std::string::npos);
+    CHECK(filter.find("ipv6.DstAddr < ff00::0") != std::string::npos);
+    CHECK(filter.find("> ffff::0") == std::string::npos);
 }
 
 void test_util()

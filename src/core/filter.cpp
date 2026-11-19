@@ -67,14 +67,14 @@ constexpr std::string_view kNoLocalNetsV6Source =
     "(ipv6.SrcAddr < 2001::0 or ipv6.SrcAddr > 2001:1::0) and "
     "(ipv6.SrcAddr < fc00::0 or ipv6.SrcAddr > fe00::0) and "
     "(ipv6.SrcAddr < fe80::0 or ipv6.SrcAddr > fec0::0) and "
-    "(ipv6.SrcAddr < ff00::0 or ipv6.SrcAddr > ffff::0))";
+    "(ipv6.SrcAddr < ff00::0))";
 
 constexpr std::string_view kNoLocalNetsV6Destination =
     "((ipv6.DstAddr > ::1) and "
     "(ipv6.DstAddr < 2001::0 or ipv6.DstAddr > 2001:1::0) and "
     "(ipv6.DstAddr < fc00::0 or ipv6.DstAddr > fe00::0) and "
     "(ipv6.DstAddr < fe80::0 or ipv6.DstAddr > fec0::0) and "
-    "(ipv6.DstAddr < ff00::0 or ipv6.DstAddr > ffff::0))";
+    "(ipv6.DstAddr < ff00::0))";
 
 std::string local_net_expansion(std::string text)
 {
@@ -162,7 +162,7 @@ std::string build_quic_filter()
 {
     return "outbound and !impostor and !loopback and udp "
            "and udp.DstPort == 443 and udp.PayloadLength >= 1200 "
-           "and udp.Payload[0] >= 0xC0 and "
+           "and udp.Payload[0] >= 0xC0 and udp.Payload[0] <= 0xCF and "
            "(udp.Payload32[1b] == 0x01 or "
            "udp.Payload32[1b] == 0x6b3343cf)";
 }

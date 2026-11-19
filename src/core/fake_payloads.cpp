@@ -115,7 +115,7 @@ static_assert(kClientHelloPart1.size() == 523);
 
 std::mt19937& random_engine()
 {
-    static std::mt19937 engine{std::random_device{}()};
+    thread_local std::mt19937 engine{std::random_device{}()};
     return engine;
 }
 
