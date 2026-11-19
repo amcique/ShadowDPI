@@ -4,13 +4,19 @@
 #include <chrono>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "shadowdpi/cli.hpp"
+#include "shadowdpi/ipc.hpp"
 #include "application.hpp"
+#include "config_store.hpp"
 #include "divert.hpp"
+#include "ipc_pipe.hpp"
 #include "lifecycle.hpp"
 #include "win_headers.hpp"
 
@@ -34,6 +40,107 @@ void report_status() noexcept
     if (g_status_handle != nullptr) {
         SetServiceStatus(g_status_handle, &g_status);
     }
+}
+
+/// Optional delegation added by the installer. Absent means admins only.
+[[nodiscard]] std::optional<std::string> read_allowed_sid() noexcept
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\ShadowDPI", 0,
+                      KEY_READ, &key) != ERROR_SUCCESS) {
+        return std::nullopt;
+    }
+    char buffer[256]{};
+    DWORD length = sizeof(buffer);
+    const LONG result = RegQueryValueExA(key, "IpcAllowedSid", nullptr,
+                                         nullptr,
+                                         reinterpret_cast<LPBYTE>(buffer),
+                                         &length);
+    RegCloseKey(key);
+    if (result != ERROR_SUCCESS || length == 0 || length >= sizeof(buffer)) {
+        return std::nullopt;
+    }
+    return std::string(buffer, length - 1);
+}
+
+[[nodiscard]] sdp::ipc::Response handle_ipc_request(
+    const sdp::ipc::Request& request) noexcept
+{
+    using sdp::ipc::MessageType;
+    using sdp::ipc::Response;
+
+    Response response;
+    switch (request.type) {
+    case MessageType::Handshake:
+        response.ok = true;
+        response.message = "version=" +
+                           std::to_string(sdp::ipc::kIpcVersion) +
+                           ";pid=" + std::to_string(request.pid);
+        break;
+
+    case MessageType::GetStatus:
+        {
+            std::lock_guard lock{g_status_mutex};
+            response.ok = true;
+            response.message =
+                "state=" + std::to_string(g_status.dwCurrentState) +
+                ";exit=" + std::to_string(g_status.dwWin32ExitCode) +
+                ";checkpoint=" + std::to_string(g_status.dwCheckPoint) +
+                ";pid=" + std::to_string(GetCurrentProcessId());
+        }
+        break;
+
+    case MessageType::ApplyConfig:
+        {
+            const auto received = sdp::ipc::decode_argv(request.payload);
+            if (!received) {
+                response.message = "malformed arguments";
+                break;
+            }
+            std::vector<std::string> arguments{"shadowdpi.exe"};
+            arguments.insert(arguments.end(), received->begin(),
+                             received->end());
+            std::vector<char*> argv;
+            argv.reserve(arguments.size());
+            for (auto& argument : arguments) {
+                argv.push_back(argument.data());
+            }
+            try {
+                (void)sdp::parse_cli(static_cast<int>(argv.size()),
+                                     argv.data());
+            }
+            catch (const sdp::CliError& error) {
+                response.message = error.what();
+                break;
+            }
+            std::string error;
+            if (!sdp::ipc::save_config(sdp::ipc::default_config_path(),
+                                       arguments, error)) {
+                response.message = error;
+                break;
+            }
+            response.ok = true;
+            response.message = "saved; restart required";
+        }
+        break;
+
+    case MessageType::Stop:
+        ShutdownCoordinator::instance().request_stop();
+        response.ok = true;
+        response.message = "stop requested";
+        break;
+
+    case MessageType::Start:
+    case MessageType::RunScan:
+    case MessageType::GetLog:
+        response.message = "not available in this phase";
+        break;
+
+    default:
+        response.message = "unknown command";
+        break;
+    }
+    return response;
 }
 
 void run_stop_watchdog() noexcept
@@ -119,6 +226,15 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         report_status();
     });
 
+    std::unique_ptr<sdp::ipc::IpcServer> ipc;
+    std::string ipc_error;
+    ipc = std::make_unique<sdp::ipc::IpcServer>(
+        "shadowdpi", sdp::ipc::build_pipe_sddl(read_allowed_sid()));
+    ipc->set_handler(handle_ipc_request);
+    if (!ipc->start(ipc_error)) {
+        OutputDebugStringA(("ShadowDPI IPC unavailable: " + ipc_error).c_str());
+    }
+
     std::vector<char*> argv;
     argv.reserve(g_arguments.size() + 1);
     for (auto& argument : g_arguments) {
@@ -128,6 +244,10 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
 
     const int result = run_application(static_cast<int>(g_arguments.size()),
                                        argv.data());
+
+    if (ipc) {
+        ipc->stop();
+    }
 
     {
         std::lock_guard lock{g_status_mutex};

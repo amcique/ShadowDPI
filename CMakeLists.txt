@@ -82,6 +82,29 @@ target_compile_options(shadowdpi_core PRIVATE
 )
 
 # ---------------------------------------------------------------------------
+# IPC: privileged service endpoint used by a future unprivileged GUI.
+# ---------------------------------------------------------------------------
+add_library(shadowdpi_ipc STATIC
+    src/ipc/ipc.cpp
+    src/ipc/ipc_pipe.cpp
+    src/ipc/config_store.cpp
+)
+
+target_include_directories(shadowdpi_ipc PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/windows"
+)
+
+target_compile_features(shadowdpi_ipc PUBLIC cxx_std_20)
+target_link_libraries(shadowdpi_ipc PUBLIC advapi32)
+
+target_compile_options(shadowdpi_ipc PRIVATE
+    ${SHADOWDPI_WARNING_FLAGS}
+    /guard:cf /sdl
+)
+
+# ---------------------------------------------------------------------------
 # Windows executable: WinDivert integration.
 # ---------------------------------------------------------------------------
 find_path(WINDIVERT_INCLUDE_DIR
@@ -192,6 +215,7 @@ target_include_directories(shadowdpi PRIVATE
 # no static import of WinDivert.dll that the loader could resolve before main().
 target_link_libraries(shadowdpi PRIVATE
     shadowdpi_core
+    shadowdpi_ipc
 )
 
 target_compile_features(shadowdpi PRIVATE cxx_std_20)
@@ -293,4 +317,15 @@ if(SHADOWDPI_BUILD_TESTS)
     )
 
     add_test(NAME core COMMAND shadowdpi_core_tests)
+
+    add_executable(shadowdpi_ipc_tests tests/ipc_tests.cpp)
+    target_link_libraries(shadowdpi_ipc_tests PRIVATE
+        shadowdpi_core
+        shadowdpi_ipc
+    )
+    target_compile_features(shadowdpi_ipc_tests PRIVATE cxx_std_20)
+    target_compile_options(shadowdpi_ipc_tests PRIVATE
+        ${SHADOWDPI_WARNING_FLAGS}
+    )
+    add_test(NAME ipc COMMAND shadowdpi_ipc_tests)
 endif()
