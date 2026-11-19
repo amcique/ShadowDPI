@@ -6,8 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace sdp {
 
@@ -32,8 +32,8 @@ public:
                          bool ipv6);
 
     /// Looks up an incoming DNS response and returns the original resolver
-    /// endpoint. The entry is consumed only when the transaction ID and
-    /// question match; a mismatched response is ignored and the entry stays.
+    /// endpoint. The entry is consumed only when the local endpoint,
+    /// transaction ID and question match; a mismatch leaves it in place.
     [[nodiscard]] std::optional<DnsRedirect> handle_incoming(
         const std::array<std::uint32_t, 4>& local_ip,
         std::uint16_t local_port,
@@ -51,6 +51,8 @@ private:
         bool ipv6{false};
         std::array<std::uint32_t, 4> ip{};
         std::uint16_t port{0};
+        std::uint16_t transaction_id{0};
+        std::string question;
 
         friend bool operator==(const Key&, const Key&) = default;
     };
@@ -62,8 +64,6 @@ private:
     struct Entry {
         std::array<std::uint32_t, 4> remote_ip{};
         std::uint16_t remote_port{0};
-        std::uint16_t transaction_id{0};
-        std::vector<std::byte> question;
         std::chrono::steady_clock::time_point timestamp;
     };
 

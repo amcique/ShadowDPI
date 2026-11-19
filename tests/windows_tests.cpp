@@ -1154,6 +1154,52 @@ void test_engine_dns_redirect()
     CHECK(!unmatched_action.reinject);
 }
 
+void test_engine_concurrent_dns_redirect()
+{
+    sdp::Config config;
+    config.dns.v4_server = sdp::parse_ip_address("9.9.9.9");
+    config.dns.v4_port = 5353;
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    auto query_a = dns_query_payload();
+    query_a[1] = std::byte{0x01};
+    auto query_b = dns_query_payload();
+    query_b[1] = std::byte{0x02};
+
+    sdp::win::PacketBuffer out_a;
+    sdp::win::PacketBuffer out_b;
+    make_udp_payload_packet(out_a, true, ipv4_address(192, 168, 1, 2),
+                            ipv4_address(8, 8, 8, 8), 53000, 53, query_a);
+    make_udp_payload_packet(out_b, true, ipv4_address(192, 168, 1, 2),
+                            ipv4_address(8, 8, 8, 8), 53000, 53, query_b);
+    CHECK(engine.process(out_a).reinject);
+    CHECK(engine.process(out_b).reinject);
+
+    auto response_b = dns_response_payload();
+    response_b[1] = std::byte{0x02};
+    auto response_a = dns_response_payload();
+    response_a[1] = std::byte{0x01};
+
+    sdp::win::PacketBuffer in_b;
+    sdp::win::PacketBuffer in_a;
+    make_udp_payload_packet(in_b, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
+                            response_b);
+    make_udp_payload_packet(in_a, false, ipv4_address(9, 9, 9, 9),
+                            ipv4_address(192, 168, 1, 2), 5353, 53000,
+                            response_a);
+    CHECK(engine.process(in_b).reinject);
+    CHECK(engine.process(in_a).reinject);
+
+    auto parsed = parse_packet_buffer(in_b);
+    CHECK(parsed.ipv4->SrcAddr == ipv4_address(8, 8, 8, 8));
+    parsed = parse_packet_buffer(in_a);
+    CHECK(parsed.ipv4->SrcAddr == ipv4_address(8, 8, 8, 8));
+}
+
 void test_engine_inbound_window_size()
 {
     const sdp::Logger logger{false};
@@ -1304,6 +1350,7 @@ int main()
     test_engine_fake_packet();
     test_fake_sender_send_failure();
     test_engine_dns_redirect();
+    test_engine_concurrent_dns_redirect();
     test_engine_inbound_window_size();
     test_engine_passive_dpi();
     test_copy_packet();

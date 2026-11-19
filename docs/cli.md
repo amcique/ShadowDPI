@@ -131,6 +131,16 @@ applies to every connection on the handled ports.
 `--dns-port` requires `--dns-addr`, and `--dnsv6-port` requires
 `--dnsv6-addr`.
 
+ShadowDPI tracks each forwarded query by local endpoint, transaction ID and
+question, and accepts a response only when all three match and the source is
+the configured resolver. Unmatched DNS responses are dropped. That includes
+answers to queries that started before ShadowDPI, queries whose tracking entry
+expired after 30 seconds or was evicted under load, and packets whose question
+uses DNS name compression. This fail-closed policy keeps injected answers away
+from applications at the cost of dropping those legitimate answers too.
+Identical queries from one application port to different original resolvers
+share one tracking entry, so only the last one can be restored.
+
 ## Compatibility aliases
 
 The long names introduced by earlier DPI tools are accepted so existing

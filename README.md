@@ -229,8 +229,10 @@ desktop utility.
   resolved at runtime with explicit application-and-System32 search flags and
   `GetProcAddress`, and the process search path is restricted before any other
   module loads. `dumpbin /DEPENDENTS` shows no static WinDivert import.
-- Redirected DNS answers are accepted only when the transaction ID, the
-  question, and the resolver endpoint match a query ShadowDPI forwarded.
+- Redirected DNS answers are accepted only when the local endpoint, transaction
+  ID, question, and resolver endpoint match a query ShadowDPI forwarded.
+  Unmatched answers are dropped, including replies to queries that started
+  before ShadowDPI and packets whose question uses DNS name compression.
 - The TTL and DNS trackers have hard entry caps and evict, so a spoofed packet
   flood cannot grow memory without bound.
 - There is no telemetry and no outbound connection of ShadowDPI's own.
@@ -339,6 +341,9 @@ The complete installer reference is in [docs/install.md](docs/install.md).
   time. `-9` is a starting point, not a guarantee. Run
   [the strategy scanner](docs/scan.md) against your own URL list when the
   presets do not work.
+- **DNS redirection is fail-closed.** It must see the query to restore the
+  answer. Replies to queries started before ShadowDPI, or whose tracking entry
+  expired or was evicted under load, are dropped.
 - **IPv6 is implemented but not field-proven.** The benchmark host had no live
   IPv6 DPI path, so IPv6 evasion was not validated against a real provider.
 - **QUIC blocking changes behavior.** `-9` intentionally forces TCP fallback.

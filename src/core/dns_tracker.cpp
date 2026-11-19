@@ -1,6 +1,8 @@
 #include "shadowdpi/dns_tracker.hpp"
 
 #include <functional>
+#include <string>
+#include <utility>
 
 #include "shadowdpi/util.hpp"
 
@@ -14,46 +16,6 @@ void hash_combine(std::size_t& seed, std::size_t value) noexcept
     seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
 }
 
-/// Returns the raw question section (QNAME + QTYPE + QCLASS) when the packet
-/// contains a complete, uncompressed question. Compression pointers are not
-/// valid in the question of a query, so they are rejected.
-[[nodiscard]] std::optional<std::span<const std::byte>> question_section(
-    std::span<const std::byte> payload)
-{
-    if (payload.size() < kDnsHeaderSize) {
-        return std::nullopt;
-    }
-
-    std::size_t offset = kDnsHeaderSize;
-    while (true) {
-        if (offset >= payload.size()) {
-            return std::nullopt;
-        }
-
-        const auto length =
-            std::to_integer<std::uint8_t>(payload[offset]);
-        if (length == 0) {
-            ++offset;
-            break;
-        }
-        if ((length & 0xC0U) != 0) {
-            return std::nullopt;
-        }
-
-        offset += 1 + length;
-        if (offset > payload.size()) {
-            return std::nullopt;
-        }
-    }
-
-    if (payload.size() - offset < 4) {
-        return std::nullopt;
-    }
-    offset += 4;
-
-    return payload.subspan(kDnsHeaderSize, offset - kDnsHeaderSize);
-}
-
 [[nodiscard]] unsigned char fold_ascii(unsigned char value) noexcept
 {
     if (value >= 'A' && value <= 'Z') {
@@ -62,44 +24,46 @@ void hash_combine(std::size_t& seed, std::size_t value) noexcept
     return value;
 }
 
-/// DNS names are case-insensitive; QTYPE/QCLASS are compared exactly.
-[[nodiscard]] bool questions_match(std::span<const std::byte> left,
-                                   std::span<const std::byte> right) noexcept
+/// Returns the question as length-prefixed labels plus QTYPE/QCLASS. QNAME
+/// bytes are folded for DNS 0x20 case randomization; QTYPE/QCLASS stay exact.
+/// Compression pointers in a question are rejected.
+[[nodiscard]] std::optional<std::string> normalized_question(
+    std::span<const std::byte> payload)
 {
-    if (left.size() != right.size()) {
-        return false;
+    if (payload.size() < kDnsHeaderSize) {
+        return std::nullopt;
     }
 
-    std::size_t name_end = 0;
-    while (name_end < left.size()) {
-        const auto length =
-            std::to_integer<std::uint8_t>(left[name_end]);
+    std::size_t offset = kDnsHeaderSize;
+    std::string question;
+    while (true) {
+        if (offset >= payload.size()) {
+            return std::nullopt;
+        }
+        const auto length = std::to_integer<std::uint8_t>(payload[offset]);
+        question.push_back(static_cast<char>(length));
         if (length == 0) {
-            ++name_end;
+            ++offset;
             break;
         }
-        name_end += 1 + length;
-        if (name_end > left.size()) {
-            return false;
+        if ((length & 0xC0U) != 0 || offset + 1 + length > payload.size()) {
+            return std::nullopt;
         }
+        for (std::size_t index = 0; index < length; ++index) {
+            question.push_back(static_cast<char>(fold_ascii(
+                std::to_integer<unsigned char>(payload[offset + 1 + index]))));
+        }
+        offset += 1 + length;
     }
 
-    if (left.size() - name_end < 4) {
-        return false;
+    if (payload.size() - offset < 4) {
+        return std::nullopt;
     }
-
-    for (std::size_t index = 0; index < name_end; ++index) {
-        if (fold_ascii(std::to_integer<unsigned char>(left[index])) !=
-            fold_ascii(std::to_integer<unsigned char>(right[index]))) {
-            return false;
-        }
+    for (std::size_t index = 0; index < 4; ++index) {
+        question.push_back(static_cast<char>(
+            std::to_integer<unsigned char>(payload[offset + index])));
     }
-    for (std::size_t index = name_end; index < left.size(); ++index) {
-        if (left[index] != right[index]) {
-            return false;
-        }
-    }
-    return true;
+    return question;
 }
 
 } // namespace
@@ -111,6 +75,8 @@ std::size_t DnsTracker::KeyHash::operator()(const Key& key) const noexcept
         hash_combine(seed, std::hash<std::uint32_t>{}(word));
     }
     hash_combine(seed, std::hash<std::uint16_t>{}(key.port));
+    hash_combine(seed, std::hash<std::uint16_t>{}(key.transaction_id));
+    hash_combine(seed, std::hash<std::string>{}(key.question));
     return seed;
 }
 
@@ -127,15 +93,13 @@ bool DnsTracker::handle_outgoing(
     if (!is_dns_packet(payload, true)) {
         return false;
     }
-
-    const auto question = question_section(payload);
+    const auto question = normalized_question(payload);
     if (!question) {
         return false;
     }
 
-    const std::uint16_t transaction_id = read_be16(payload.data());
-    const std::vector<std::byte> question_copy(question->begin(),
-                                               question->end());
+    const Key key{ipv6, local_ip, local_port, read_be16(payload.data()),
+                  std::move(*question)};
 
     if (entries_.size() >= kMaxEntries) {
         // Bound memory under a query flood. Evicting any entry is acceptable:
@@ -143,15 +107,12 @@ bool DnsTracker::handle_outgoing(
         entries_.erase(entries_.begin());
     }
 
-    const Key key{ipv6, local_ip, local_port};
-    auto [iterator, inserted] = entries_.try_emplace(
-        key, Entry{remote_ip, remote_port, transaction_id, question_copy,
-                   Clock::now()});
+    auto [iterator, inserted] =
+        entries_.try_emplace(key, Entry{remote_ip, remote_port, Clock::now()});
     if (!inserted) {
+        // A retransmitted query refreshes the original resolver endpoint.
         iterator->second.remote_ip = remote_ip;
         iterator->second.remote_port = remote_port;
-        iterator->second.transaction_id = transaction_id;
-        iterator->second.question = question_copy;
         iterator->second.timestamp = Clock::now();
     }
     return true;
@@ -168,33 +129,26 @@ std::optional<DnsRedirect> DnsTracker::handle_incoming(
     if (!is_dns_packet(payload, false)) {
         return std::nullopt;
     }
+    const auto question = normalized_question(payload);
+    if (!question) {
+        return std::nullopt;
+    }
 
-    const Key key{ipv6, local_ip, local_port};
+    const Key key{ipv6, local_ip, local_port, read_be16(payload.data()),
+                  std::move(*question)};
     const auto iterator = entries_.find(key);
     if (iterator == entries_.end()) {
         return std::nullopt;
     }
 
-    if (iterator->second.transaction_id != read_be16(payload.data())) {
-        return std::nullopt;
-    }
-
-    const auto question = question_section(payload);
-    if (!question ||
-        !questions_match(iterator->second.question, *question)) {
-        return std::nullopt;
-    }
-
-    const DnsRedirect redirect{
-        iterator->second.remote_ip,
-        iterator->second.remote_port,
-    };
+    const DnsRedirect redirect{iterator->second.remote_ip,
+                               iterator->second.remote_port};
     entries_.erase(iterator);
     return redirect;
 }
 
 bool DnsTracker::is_dns_packet(std::span<const std::byte> payload,
-                               bool outgoing)
+                                bool outgoing)
 {
     if (payload.size() < 16) {
         return false;

@@ -63,8 +63,11 @@ void check(bool condition, std::string_view expression, int line)
     return result;
 }
 
-[[nodiscard]] std::vector<std::byte> make_dns_message(bool response,
-                                                      std::uint16_t id)
+[[nodiscard]] std::vector<std::byte> make_dns_message(
+    bool response,
+    std::uint16_t id,
+    std::string_view domain = "example.com",
+    std::uint16_t qtype = 1)
 {
     std::vector<std::byte> message(12, std::byte{0});
     message[0] = static_cast<std::byte>(id >> 8U);
@@ -73,17 +76,22 @@ void check(bool condition, std::string_view expression, int line)
     message[3] = response ? std::byte{0x80} : std::byte{0x00};
     message[5] = std::byte{0x01}; // QDCOUNT
 
-    for (const auto part : {std::string_view{"example"},
-                            std::string_view{"com"}}) {
-        message.push_back(static_cast<std::byte>(part.size()));
-        for (const char character : part) {
+    while (!domain.empty()) {
+        const auto dot = domain.find('.');
+        const auto label = domain.substr(0, dot);
+        message.push_back(static_cast<std::byte>(label.size()));
+        for (const char character : label) {
             message.push_back(static_cast<std::byte>(
                 static_cast<unsigned char>(character)));
         }
+        if (dot == std::string_view::npos) {
+            break;
+        }
+        domain.remove_prefix(dot + 1);
     }
     message.push_back(std::byte{0}); // end of QNAME
-    message.push_back(std::byte{0});
-    message.push_back(std::byte{1}); // QTYPE A
+    message.push_back(static_cast<std::byte>(qtype >> 8U));
+    message.push_back(static_cast<std::byte>(qtype & 0xFFU));
     message.push_back(std::byte{0});
     message.push_back(std::byte{1}); // QCLASS IN
     return message;
@@ -534,6 +542,83 @@ void test_dns_tracker()
     CHECK(tracker.size() <= sdp::DnsTracker::kMaxEntries);
 }
 
+void test_dns_concurrent_queries()
+{
+    sdp::DnsTracker tracker;
+    const std::array<std::uint32_t, 4> local{0x0100007F, 0, 0, 0};
+    const std::array<std::uint32_t, 4> resolver_a{0x08080808, 0, 0, 0};
+    const std::array<std::uint32_t, 4> resolver_b{0x01010101, 0, 0, 0};
+
+    const auto q1 = make_dns_message(false, 0x1000);
+    const auto q2 = make_dns_message(false, 0x2000);
+    CHECK(tracker.handle_outgoing(local, 53000, resolver_a, 53, q1, false));
+    CHECK(tracker.handle_outgoing(local, 53000, resolver_b, 53, q2, false));
+    CHECK(tracker.size() == 2);
+
+    const auto r2 = tracker.handle_incoming(
+        local, 53000, make_dns_message(true, 0x2000), false);
+    CHECK(r2.has_value());
+    if (r2) {
+        CHECK(r2->remote_ip[0] == resolver_b[0]);
+    }
+    const auto r1 = tracker.handle_incoming(
+        local, 53000, make_dns_message(true, 0x1000), false);
+    CHECK(r1.has_value());
+    if (r1) {
+        CHECK(r1->remote_ip[0] == resolver_a[0]);
+    }
+    CHECK(tracker.size() == 0);
+
+    // Same ID, different questions.
+    const auto qa = make_dns_message(false, 0x3000, "example.com");
+    const auto qb = make_dns_message(false, 0x3000, "other.com");
+    CHECK(tracker.handle_outgoing(local, 53001, resolver_a, 53, qa, false));
+    CHECK(tracker.handle_outgoing(local, 53001, resolver_b, 53, qb, false));
+    CHECK(tracker.size() == 2);
+    const auto rb = tracker.handle_incoming(
+        local, 53001, make_dns_message(true, 0x3000, "other.com"), false);
+    CHECK(rb.has_value());
+    if (rb) {
+        CHECK(rb->remote_ip[0] == resolver_b[0]);
+    }
+    const auto ra = tracker.handle_incoming(
+        local, 53001, make_dns_message(true, 0x3000, "example.com"), false);
+    CHECK(ra.has_value());
+    if (ra) {
+        CHECK(ra->remote_ip[0] == resolver_a[0]);
+    }
+
+    // Retransmissions refresh one entry and DNS 0x20 case differences match.
+    const auto mixed = make_dns_message(false, 0x4000, "ExAmPlE.CoM");
+    CHECK(tracker.handle_outgoing(local, 53002, resolver_a, 53, mixed, false));
+    CHECK(tracker.handle_outgoing(local, 53002, resolver_a, 53, mixed, false));
+    CHECK(tracker.size() == 1);
+    CHECK(tracker.handle_incoming(
+              local, 53002, make_dns_message(true, 0x4000, "example.COM"),
+              false)
+              .has_value());
+
+    // QTYPE is part of the key.
+    const auto txt = make_dns_message(false, 0x5000, "example.com", 16);
+    const auto arecord = make_dns_message(false, 0x5000, "example.com", 1);
+    CHECK(tracker.handle_outgoing(local, 53003, resolver_a, 53, txt, false));
+    CHECK(tracker.handle_outgoing(local, 53003, resolver_b, 53, arecord, false));
+    CHECK(tracker.size() == 2);
+    const auto answer = tracker.handle_incoming(
+        local, 53003, make_dns_message(true, 0x5000, "example.com", 1), false);
+    CHECK(answer.has_value());
+    if (answer) {
+        CHECK(answer->remote_ip[0] == resolver_b[0]);
+    }
+    CHECK(tracker.size() == 1);
+
+    // Address family is part of the key.
+    const std::array<std::uint32_t, 4> v6local{0x20010DB8U, 0, 0, 1};
+    CHECK(tracker.handle_outgoing(local, 53004, resolver_a, 53, q1, false));
+    CHECK(tracker.handle_outgoing(v6local, 53004, resolver_b, 53, q1, true));
+    CHECK(tracker.size() == 3);
+}
+
 void test_http_helpers()
 {
     const auto payload = to_buffer(
@@ -746,6 +831,7 @@ int main()
     test_auto_ttl();
     test_ttl_tracker();
     test_dns_tracker();
+    test_dns_concurrent_queries();
     test_http_helpers();
     test_tls_helpers();
     test_filters();
