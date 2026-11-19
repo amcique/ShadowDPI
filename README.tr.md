@@ -12,6 +12,7 @@
   <a href="https://github.com/amcique/ShadowDPI/actions/workflows/build.yml"><img src="https://github.com/amcique/ShadowDPI/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
   <a href="https://github.com/amcique/ShadowDPI/releases"><img src="https://img.shields.io/github/v/release/amcique/ShadowDPI?color=0078D6" alt="Latest release"></a>
   <a href="https://github.com/amcique/ShadowDPI/releases"><img src="https://img.shields.io/badge/platform-Windows%20x64-0078D6?logo=windows11&logoColor=white" alt="Windows x64"></a>
+  <a href="#kaynaktan-derleme-msvc-x64"><img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue" alt="GPLv3"></a>
 </p>
 
@@ -127,9 +128,9 @@ kat daha az CPU** kullandı ve aktarım süresi değişmedi.
 
 ![CPU cost per GiB](docs/performance/cpu-per-gib.svg)
 
-Görünen tutarsızlık aslında sonucun kendisi: iki sürüm de veriyi aynı hızda
-taşıyor. ShadowDPI bunu çok daha az çevrimle yapıyor, bu da makineyi paylaşan
-yönlendiricilere, VPN'lere ve diğer yazılımlara alan bırakıyor.
+Her iki sürüm de veriyi aynı hızda taşıyor. ShadowDPI bunu çok daha az çevrimle
+yapıyor, bu da makineyi paylaşan yönlendiricilere, VPN'lere ve diğer
+yazılımlara alan bırakıyor.
 
 ![Wall-clock parity](docs/performance/wall-clock-parity.svg)
 
@@ -139,6 +140,11 @@ ve keep-alive için A/B medyanlarının tamamı bu aralığa düşer; eşleştir
 oranları (0,0023, 0,0011, 0,0911) ise bu aralığa girmez.
 
 ![CPU cycles by workload](docs/performance/cpu-cycles.svg)
+
+### Tüm on iki iş yükünde CPU maliyeti
+
+Toplu HTTPS aktarımları 500-810 kat daha az CPU kullanır. Diğer iş yükleri
+2-75 kat fark gösterir; yukarıdaki 67,8× değeri bayt ağırlıklı temkinli toplamdır.
 
 On iki iş yükünün tamamı, gecikme dağılımları ve uyarılar:
 [docs/performance.md](docs/performance.md).
@@ -197,6 +203,53 @@ Seçeneklerin tam başvurusu, takma ad tablosu, kara liste biçimi ve doğrulama
 kuralları [docs/cli.md](docs/cli.md) dosyasında. Kurulum eylemleri, hizmet
 ayarları ve `install.json` için [docs/install.md](docs/install.md).
 
+## Perde arkası
+
+WinDivert, Windows Filtering Platform katmanında paketleri yakalar ve bunları
+kullanıcı alanına aktarır. ShadowDPI IP ve TCP başlıklarını ayrıştırır, paketin
+dokunulması gereken bir bağlantıya ait olup olmadığına karar verir, paketi
+yeniden yazar veya böler, sağlama toplamlarını hesaplar ve tekrar stack'e
+verir. Pasif DPI ve QUIC için ayrı düşürme filtreleri vardır.
+
+Uygulama, WinDivert'tan bağımsız bir çekirdek ile ince bir Windows katmanına
+ayrılmıştır:
+
+- Çekirdek; argüman ayrıştırma, filtre oluşturma, HTTP/TLS incelemesi, kara
+  listeler, TTL/DNS sayaçları ve sahte yük üretiminden sorumludur. WinDivert
+  olmadan birim testleri vardır.
+- Windows katmanı WinDivert tanıtıcılarını, paket döngüsünü, yeniden enjeksiyonu
+  ve hizmet yaşam döngüsünü yönetir.
+- Paket ayrıştırıcısı `WinDivertHelperParsePacket` ile bayt bayt karşılaştırılır;
+  rastgele bir korpus da kullanılır.
+
+Bu teknikler paket sınırlarını, başlık boşluklarını, harf durumunu veya TTL'yi
+değiştirir. HTTP veya TLS'in anlamını değiştirmez ve hiçbir trafik
+şifrelenmez.
+
+## Güvenlik
+
+ShadowDPI yönetici hakları gerektirdiği için normal bir masaüstü aracından
+daha yüksek bir ölçüte tabidir.
+
+- `shadowdpi.exe`, `WinDivert.dll` dosyasını **statik olarak içe aktarmaz**. DLL
+  çalışma zamanında, uygulama klasörü ve System32 için açık arama bayrakları ve
+  `GetProcAddress` ile yüklenir; işlem arama yolu diğer modüller yüklenmeden
+  önce kısıtlanır. `dumpbin /DEPENDENTS` statik WinDivert içe aktarması
+  göstermez.
+- Yönlendirilen DNS yanıtları yalnızca yerel uç nokta, işlem kimliği, soru ve
+  çözümleyici adresi ShadowDPI'ın ilettiği bir sorguyla eşleşirse kabul edilir.
+  Eşleşmeyen yanıtlar, ShadowDPI başlamadan önce başlatılan sorguların
+  yanıtları ve sıkıştırılmış soru içeren paketler de dahil olmak üzere
+  düşürülür.
+- TTL ve DNS sayaçlarının katı giriş sınırları vardır ve eski girişleri atar;
+  böylece sahte paket seli belleği sınırsız büyütemez.
+- Telemetri yoktur ve aracın kendi kendine açtığı bir giden bağlantı yoktur.
+
+Bu değişikliklerin yapıldığı sürüm öncesi inceleme herkese açıktır:
+[`docs/reviews/2026-11-source-review.md`](docs/reviews/2026-11-source-review.md).
+Güvenlik açıklarını genel bir issue yerine [SECURITY.md](SECURITY.md) üzerinden
+bildirin.
+
 ## Gereksinimler
 
 - **Windows 10 veya 11, x64.** Windows 7 ve 8.1, sistem SHA-2 sürücü imzalarına
@@ -212,12 +265,95 @@ ayarları ve `install.json` için [docs/install.md](docs/install.md).
 - **PowerShell 5.1** `install.ps1` için gereklidir. Strateji tarayıcısı ayrıca
   `curl.exe` ister. İkisi de Windows 10 ve sonrasında gelir.
 
+## Kaynaktan derleme (MSVC x64)
+
+ShadowDPI **yalnızca x64 ve MSVC** bir projedir. 32 bit, MinGW, Clang ve ARM64
+derlemesi yoktur; CMake preset'i Visual Studio x64 araçlarını seçer ve başka
+bir mimari için yapılandırma bilinçli olarak başarısız olur.
+
+Gerekenler:
+
+- **Desktop development with C++** iş yüküyle Visual Studio 2022 veya üzeri.
+- CMake 3.25 veya üzeri.
+- WinDivert 2.2.x dağıtımı.
+
+`WINDIVERT_ROOT` değişkenini açılmış WinDivert klasörüne yöneltin, ardından bir
+Developer PowerShell'de yapılandırın, derleyin ve test edin:
+
+```powershell
+$env:WINDIVERT_ROOT = "C:\path\to\WinDivert-2.2.0-D"
+cmake --preset msvc-x64
+cmake --build --preset msvc-x64-release
+ctest --preset msvc-x64-release --output-on-failure
+```
+
+Klasörde `include\windivert.h` ve `x64\WinDivert.lib` bulunmalıdır. Derleme,
+`WinDivert.dll` ve `WinDivert64.sys` dosyalarını çalıştırılabilir dosyanın
+yanına, `build\msvc-x64\Release\` içine kopyalar.
+
+Testler ve ayrıştırıcı ölçümü varsayılan olarak derlenir. Yalnızca çalıştırılabilir
+dosyayı derlemek için `-DSHADOWDPI_BUILD_TESTS=OFF` ile yapılandırın. CI ile aynı
+katı derleme için `-DSHADOWDPI_WARNINGS_AS_ERRORS=ON` ve
+`-DSHADOWDPI_REQUIRE_WINDIVERT_RUNTIME=ON` ekleyin; CI'da ikisi de açıktır.
+
+Hata bildirimleri ve pull request'ler memnuniyetle karşılanır.
+[CONTRIBUTING.md](CONTRIBUTING.md) inceleme sürecini, commit biçimini ve stil
+kurallarını anlatır.
+
+### Testler neleri kapsıyor
+
+- `core`: CLI, yapılandırma, filtreler, HTTP/TLS yardımcıları, kara liste ve
+  sayaçlar, WinDivert olmadan.
+- `windows`: WinDivert ile derlenen filtreler, `WinDivertHelperParsePacket` ile
+  ayrıştırıcı karşılaştırması, yeniden temelleme karşılaştırması ve yeniden
+  yazma, parçalama, sahte paketler, DNS yönlendirme ve pasif DPI için altın
+  paket motoru durumları.
+- `benchmark`: WinDivert yardımcısına göre ayrıştırıcı verimi; optimize
+  derlemelerde hız eşiği uygulanır.
+
+## Windows hizmeti
+
+Kurulum varsayılan olarak otomatik başlayan `ShadowDPI` hizmetini kaydeder:
+
+```powershell
+.\install.ps1 -Action install
+```
+
+Hizmet adını, bağımsız değişkenleri veya başlangıç türünü değiştirmek için:
+
+```powershell
+.\install.ps1 -Action reconfigure -ServiceArgs '-5'
+```
+
+Çalıştırılabilir dosya, Hizmet Denetim Yöneticisi tarafından başlatıldığında
+kendini hizmet olarak kaydeder ve durdurma isteğinde temiz bir şekilde kapanır.
+Hizmeti elle yönetiyorsanız eşdeğer komutlar:
+
+```powershell
+New-Service -Name ShadowDPI `
+  -BinaryPathName '"C:\Tools\ShadowDPI\shadowdpi.exe" -9' `
+  -DisplayName ShadowDPI -StartupType Automatic
+sc.exe description ShadowDPI "Deep Packet Inspection circumvention utility"
+Start-Service ShadowDPI
+```
+
+Kurulumu hizmetle birlikte kaldırmak için:
+
+```powershell
+.\install.ps1 -Action uninstall
+```
+
+Kurulum aracının tam başvurusu [docs/install.md](docs/install.md) dosyasında.
+
 ## Sınırlamalar
 
 - **Evrensel bir hazır ayar yok.** DPI davranışı sağlayıcıya göre değişir ve
   zamanla güncellenir. `-9` bir başlangıç noktasıdır, garanti değildir. Hazır
   ayarlar çalışmıyorsa kendi URL listenizde
   [strateji tarayıcısını](docs/scan.md) çalıştırın.
+- **DNS yönlendirme «fail-closed» çalışır.** Yanıtı geri yüklemek için sorguyu
+  görmesi gerekir. ShadowDPI başlamadan önce başlatılan sorguların yanıtları veya
+  kaydı süresi dolmuş / yük altında atılmış yanıtlar düşürülür.
 - **IPv6 uygulandı ama sahada doğrulanmadı.** Ölçüm makinesinde canlı bir IPv6 DPI
   yolu yoktu, bu yüzden IPv6 atlatma gerçek bir sağlayıcıda sınanmadı.
 - **QUIC engelleme davranışı değiştirir.** `-9` bilinçli olarak TCP'ye dönmeye
@@ -229,6 +365,39 @@ ayarları ve `install.json` için [docs/install.md](docs/install.md).
 - **Ölçüm sayıları makineye bağlıdır.** Göreli CPU avantajı sağlamdır, mutlak
   hızlar sizin bağlantınız için bir vaat değildir.
 - **Yalnızca Windows x64.** ARM64, 32 bit, Linux ve macOS derlemesi yoktur.
+
+## Sık sorulan sorular
+
+**Windows "Windows protected your PC" diyor ve antivirüsüm uyarı veriyor.**
+Beklenen bir durum: sürüm çalıştırılabilir dosyası Authenticode ile imzalanmamış
+ve bir çekirdek sürücüsü kuruyor; itibar sistemlerinin hoşlanmadığı profil
+tam olarak bu. İstemeye güvenmek yerine indirmeyi doğrulayın: SHA-256 değerini
+yayımlanan `.sha256` dosyasıyla karşılaştırın, derleme kanıtını kontrol edin
+(aşağıya bakın) veya [kaynaktan derleyin](#kaynaktan-derleme-msvc-x64).
+WinDivert'ın kendisi uzun süredir geçerli şekilde imzalanmış bir sürücüdür.
+
+**Bu bir VPN mi? IP adresimi gizliyor mu?**
+Hayır. ShadowDPI paketlerin teller üzerinde nasıl göründüğünü değiştirir, böylece
+DPI onları sınıflandırmakta zorlanır. Trafiğiniz gerçek sunucuya gerçek
+adresinizden doğrudan gider. ShadowDPI şifreleme eklemez veya kaldırmaz.
+
+**Trafiğimi şifreliyor mu?**
+Hayır. TLS'i engellemez, sertifika kurmaz ve proxy olarak çalışmaz. Yalnızca
+paket sınırlarını, başlık boşluklarını, harf durumunu, TTL'yi ve sıra numarası
+veya sağlama toplamı alanlarını değiştirir.
+
+**Hangi preset ile başlamalıyım?**
+`-9`. Bir şey bozulursa `-5` deneyin. İkisi de işe yaramazsa strateji
+tarayıcısını çalıştırın.
+
+**Discord, oyunlar veya diğer QUIC uygulamaları bozulur mu?**
+`-9`, tarayıcıların TCP'ye geçmesi için QUIC'i engeller. Bir uygulamanın QUIC'e
+ihtiyacı varsa ve TCP'ye geçemiyorsa `-5` kullanın veya ilgili sunucuları kara
+listeye ekleyin.
+
+**Başkalarında çalışıyor da bende neden çalışmıyor?**
+DPI sağlayıcıya özgüdür ve zamanla değişir. Evrensel bir preset yoktur; kendi
+URL listenizle tarayıcıyı çalıştırın ve çıktısıyla bir issue açın.
 
 ## İndirmeyi doğrulama
 
@@ -262,9 +431,25 @@ değildir. Yasalar ve ağ politikaları ülkeye ve kuruma göre değişir; arac�
 ve kurallara uygun biçimde kullanmak sizin sorumluluğunuzdadır ve bu metin
 hukuki danışmanlık değildir.
 
+## Teşekkürler
+
+TCP segmentasyonunu ve başlıklarını kullanıcı alanında değiştirerek Windows'ta
+DPI'ı atlatma fikrini **ValdikSS** ve
+[GoodbyeDPI](https://github.com/ValdikSS/GoodbyeDPI) projesi yaygınlaştırdı.
+ShadowDPI bu kavramı bağımsız bir C++20 uygulaması olarak izler ve GoodbyeDPI
+kodu veya varlıkları içermez.
+
+Paket yakalama, [basil00](https://github.com/basil00/Divert) tarafından
+geliştirilen **WinDivert** ile sağlanır; projenin mümkün olmasında büyük payı
+vardır. Lisans bilgileri [NOTICE](NOTICE) dosyasındadır.
+
 ## Lisans
 
 ShadowDPI, [GNU General Public License, version 3](LICENSE) altında
 yayımlanmıştır. Her sürümün tam kaynak kodu bu depodaki eşleşen etikettir.
 WinDivert değiştirilmeden LGPLv3 altında dağıtılır; ayrıntılar [NOTICE](NOTICE)
 ve [third_party/WinDivert/LICENSE](third_party/WinDivert/LICENSE) dosyalarında.
+
+---
+
+*Diğer diller: [English](README.md) · [Русский](README.ru.md).*
