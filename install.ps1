@@ -1321,15 +1321,24 @@ function Copy-InstallPayload {
         New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
     }
 
-    $files = @(
-        'shadowdpi.exe',
-        'WinDivert.dll',
-        'WinDivert64.sys',
-        'LICENSE',
-        'NOTICE',
-        'README.md',
-        'install.ps1'
-    )
+    $manifestPath = Join-Path $SourcePath 'release-files.txt'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "The release folder is missing release-files.txt: $SourcePath"
+    }
+    $entries = @(Get-Content -LiteralPath $manifestPath -ErrorAction Stop |
+        Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
+        ForEach-Object { $_.Trim() })
+
+    $files = @('shadowdpi.exe', 'WinDivert.dll', 'WinDivert64.sys')
+    $directories = @()
+    foreach ($entry in $entries) {
+        if ($entry.EndsWith('/')) {
+            $directories += $entry.TrimEnd('/')
+        }
+        else {
+            $files += $entry
+        }
+    }
 
     $payload = @()
     foreach ($name in $files) {
@@ -1362,7 +1371,7 @@ function Copy-InstallPayload {
         }
     }
 
-    foreach ($name in 'docs', 'tools', 'resources') {
+    foreach ($name in $directories) {
         $sourceDir = Join-Path $SourcePath $name
         if (-not (Test-Path -LiteralPath $sourceDir -PathType Container)) {
             continue
@@ -2030,13 +2039,18 @@ function Invoke-CurlProbe {
     $arguments = @(
         '--silent',
         '--show-error',
-        '--http1.1',
         '--output', 'NUL',
         '--user-agent', $script:UserAgent,
         '--max-time', "$TimeoutSec",
         '--connect-timeout', "$([Math]::Min(5, $TimeoutSec))",
         '--write-out', '%{http_code}|%{redirect_url}'
     )
+
+    # 'https' is the auto variant and uses curl's normal negotiation. Forced
+    # TLS variants pin HTTP/1.1 so only the TLS version changes between probes.
+    if ($Variant -ne 'https') {
+        $arguments = @('--http1.1') + $arguments
+    }
 
     if ($IpVersion -eq '4') {
         $arguments += '--ipv4'
@@ -3546,6 +3560,8 @@ function Invoke-InteractiveMenu {
     }
 }
 
+if ($MyInvocation.InvocationName -ne '.') {
+
 $exitCode = 0
 try {
     switch ($Action) {
@@ -3575,3 +3591,4 @@ catch {
 }
 
 exit $exitCode
+}

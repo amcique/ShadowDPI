@@ -113,6 +113,29 @@ jobs:
       - name: Test
         run: ctest --preset msvc-x64-release
 
+      - name: Build Debug
+        run: cmake --build --preset msvc-x64-debug
+
+      - name: Test Debug
+        run: ctest --preset msvc-x64-debug --output-on-failure
+
+      - name: Installer checks
+        shell: pwsh
+        run: |
+          $null = [scriptblock]::Create((Get-Content install.ps1 -Raw))
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
+          Import-Module Pester -MinimumVersion 5.0
+          $result = Invoke-Pester -Path tests/installer -Output Detailed -PassThru
+          if ($result.FailedCount -gt 0) {
+            throw "Pester reported $($result.FailedCount) failed tests"
+          }
+
+      - name: Validate packaging manifests
+        shell: pwsh
+        run: |
+          winget validate --manifest packaging/winget/amcique.ShadowDPI/0.3.0
+          $null = Get-Content packaging/scoop/shadowdpi.json -Raw | ConvertFrom-Json
+
       # CTest hides output of passing tests; run the benchmark once more so the
       # timings are visible in the build log.
       - name: Parser benchmark
@@ -126,18 +149,12 @@ jobs:
           Copy-Item build/msvc-x64/Release/shadowdpi.exe $dir
           Copy-Item build/msvc-x64/Release/WinDivert.dll $dir
           Copy-Item build/msvc-x64/Release/WinDivert64.sys $dir
-          Copy-Item LICENSE $dir
-          Copy-Item NOTICE $dir
-          Copy-Item README.md $dir
-          Copy-Item README.ru.md $dir
-          Copy-Item README.tr.md $dir
-          Copy-Item SECURITY.md $dir
-          Copy-Item install.ps1 $dir
-          Copy-Item docs $dir -Recurse
-          Copy-Item tools $dir -Recurse
-          $resourceDir = Join-Path $dir 'resources'
-          New-Item -ItemType Directory -Path $resourceDir | Out-Null
-          Copy-Item resources/logo.png $resourceDir
+          Get-Content release-files.txt | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | ForEach-Object {
+            $entry = $_.Trim().TrimEnd('/')
+            if (Test-Path -LiteralPath $entry) {
+              Copy-Item -LiteralPath $entry -Destination $dir -Recurse -Force
+            }
+          }
           $thirdParty = Join-Path $dir 'third_party/WinDivert'
           New-Item -ItemType Directory -Path $thirdParty | Out-Null
           Copy-Item third_party/WinDivert/LICENSE $thirdParty

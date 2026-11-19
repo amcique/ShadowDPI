@@ -21,10 +21,10 @@ scanning. The scan can also be started directly:
 The scanner asks for a DNS resolver in an interactive session. Pass
 `-DnsResolver system` to skip the question, or `-DnsAddr` for a custom address.
 
-The installer copies a fixed top-level payload from the release folder:
-`shadowdpi.exe`, `WinDivert.dll`, `WinDivert64.sys`, `LICENSE`, `NOTICE`,
-`README.md`, `install.ps1`, and the `docs`, `tools`, and `resources` folders.
-Add new top-level release files to `Copy-InstallPayload` in `install.ps1`.
+The installer copies the executable and WinDivert files, plus the files and
+folders listed in `release-files.txt` at the repository root. The release
+workflow reads that same list when it builds the archive, so add new release
+files there rather than editing `install.ps1` or the workflow.
 The copied files are recorded in `install.json`; an upgrade removes files from
 the previous payload that the new release no longer contains and prunes
 folders that become empty. An installation created by an older installer has

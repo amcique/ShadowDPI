@@ -59,9 +59,11 @@ installs for the current user, and an elevated shell cannot uninstall it:
 ```powershell
 winget validate --manifest .\packaging\winget\amcique.ShadowDPI\0.3.0
 winget install --manifest .\packaging\winget\amcique.ShadowDPI\0.3.0
-shadowdpi --version
 winget uninstall --name ShadowDPI --exact
 ```
+
+Running `shadowdpi.exe` itself needs Administrator, so launch it from an
+elevated shell; the application manifest requests elevation even for `--version`.
 
 Turn the setting off afterwards:
 

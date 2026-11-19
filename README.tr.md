@@ -21,8 +21,9 @@
 
 ShadowDPI, bir bağlantının ilk paketlerini değiştirerek derin paket incelemesinin
 (DPI) bağlantıyı tanımasını zorlaştırır. WinDivert üzerinde normal bir program
-olarak çalışır; bu yüzden trafiğiniz şifreli kalır ve uygulamalar gerçek sunucuya
-bağlanmaya devam eder.
+olarak çalışır; mevcut HTTPS şifrelemesini değiştirmez ve kendisi şifreleme
+eklemez. HTTP trafiği düz metin kalır. Uygulamalar gerçek sunucuya bağlanmaya
+devam eder.
 
 HTTP ve HTTPS ile çalışır; QUIC engellenerek tarayıcının TCP'ye geçmesi
 sağlanabilir. Yerleşik strateji tarayıcısı, seçtiğiniz sitelerde farklı ayarları

@@ -88,8 +88,8 @@ The question is skipped when input or output is redirected, and during
    service and records it for restart, then starts
    `shadowdpi.exe --debug-exit --ready-file` once to confirm that the build
    supports the readiness signal.
-2. The baseline probes every URL with ShadowDPI stopped. Probes use
-   `--http1.1` and a browser user agent, and do not follow redirects.
+2. The baseline probes every URL with ShadowDPI stopped. Probes use a browser
+   HTTP version negotiation to curl; forced TLS variants pin HTTP/1.1.
 3. Probes that fail at baseline become targets. A strategy passes only when
    every target is reachable and no baseline-working probe regresses.
 4. Each candidate starts `shadowdpi.exe` with `--ready-file`. The script waits

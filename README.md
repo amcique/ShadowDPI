@@ -22,8 +22,9 @@
 
 ShadowDPI changes the first packets of a connection so that deep packet
 inspection (DPI) has a harder time recognizing it. It runs as a normal program
-on top of WinDivert, so your traffic stays encrypted and apps keep connecting
-to the real server.
+on top of WinDivert, leaves existing HTTPS encryption untouched, and keeps apps
+connecting to the real server. It adds no encryption of its own; HTTP traffic
+remains plaintext.
 
 It works with HTTP and HTTPS, and it can block QUIC so browsers switch to TCP. A
 built-in scanner tries different settings against sites you choose. It needs

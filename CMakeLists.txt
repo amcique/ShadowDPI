@@ -15,6 +15,9 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "ShadowDPI only supports 64-bit builds.")
 endif()
 
+set(SHADOWDPI_VERSION_DOTTED "${PROJECT_VERSION}.0")
+string(REPLACE "." "," SHADOWDPI_VERSION_COMMA "${SHADOWDPI_VERSION_DOTTED}")
+
 # Keep the shipped executable self-contained: a static CRT means users only
 # need WinDivert.dll at runtime.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -50,7 +53,7 @@ set(WINDIVERT_ROOT "$ENV{WINDIVERT_ROOT}" CACHE PATH
     "Root directory of the WinDivert distribution")
 
 # ---------------------------------------------------------------------------
-# Core library: platform independent logic, no WinDivert dependency.
+# Core library: WinDivert-independent logic, no driver dependency.
 # ---------------------------------------------------------------------------
 add_library(shadowdpi_core STATIC
     src/core/util.cpp
@@ -89,10 +92,12 @@ find_path(WINDIVERT_INCLUDE_DIR
 set(WINDIVERT_ARCH "x64")
 set(WINDIVERT_SYS_NAME "WinDivert64.sys")
 
-find_library(WINDIVERT_LIBRARY
-    NAMES WinDivert
-    HINTS "${WINDIVERT_ROOT}/${WINDIVERT_ARCH}" "${WINDIVERT_ROOT}"
-)
+if(SHADOWDPI_BUILD_TESTS)
+    find_library(WINDIVERT_LIBRARY
+        NAMES WinDivert
+        HINTS "${WINDIVERT_ROOT}/${WINDIVERT_ARCH}" "${WINDIVERT_ROOT}"
+    )
+endif()
 
 find_file(WINDIVERT_DLL
     NAMES WinDivert.dll
@@ -104,7 +109,8 @@ find_file(WINDIVERT_SYS
     HINTS "${WINDIVERT_ROOT}/${WINDIVERT_ARCH}" "${WINDIVERT_ROOT}"
 )
 
-if(NOT WINDIVERT_INCLUDE_DIR OR NOT WINDIVERT_LIBRARY)
+if(NOT WINDIVERT_INCLUDE_DIR OR
+   (SHADOWDPI_BUILD_TESTS AND NOT WINDIVERT_LIBRARY))
     message(FATAL_ERROR
         "WinDivert was not found. Set WINDIVERT_ROOT to the extracted "
         "WinDivert distribution (it must contain include/windivert.h and "
@@ -124,10 +130,16 @@ if(NOT WINDIVERT_DLL OR NOT WINDIVERT_SYS)
         "WinDivert.dll and ${WINDIVERT_SYS_NAME}.")
 endif()
 
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/shadowdpi.exe.manifest.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi.exe.manifest"
+    @ONLY
+)
+
 # Resource paths are generated with absolute paths so the RC compiler does
 # not depend on its working directory.
 file(TO_NATIVE_PATH
-    "${CMAKE_CURRENT_SOURCE_DIR}/resources/shadowdpi.exe.manifest"
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi.exe.manifest"
     SHADOWDPI_MANIFEST_RESOURCE)
 string(REPLACE "\\" "\\\\" SHADOWDPI_MANIFEST_RESOURCE
     "${SHADOWDPI_MANIFEST_RESOURCE}")

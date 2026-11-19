@@ -2,6 +2,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <random>
@@ -107,9 +109,8 @@ void test_filters_compile()
     CHECK(passive_filter.find("ip.Id >= 0x0") != std::string::npos);
     CHECK(passive_filter.find("ip.Id == 5") != std::string::npos);
 
-    const auto extra_ports = sdp::build_main_filter(config);
-    CHECK(extra_ports.find("tcp.Ack") != std::string::npos);
-    CHECK(extra_ports.find("tcp.PayloadLength > 0") != std::string::npos);
+    CHECK(main_filter.find("tcp.Ack") != std::string::npos);
+    CHECK(main_filter.find("tcp.PayloadLength > 0") != std::string::npos);
 
     const auto quic_filter = sdp::build_quic_filter();
     std::string error;
@@ -1322,6 +1323,42 @@ void test_engine_inbound_window_size()
     }
 }
 
+void test_engine_blacklist_gating()
+{
+    const auto path = std::filesystem::temp_directory_path() /
+                      "shadowdpi-engine-blacklist-test.txt";
+    {
+        std::ofstream file(path);
+        file << "example.com\n";
+    }
+    sdp::Blacklist blacklist;
+    std::string error;
+    CHECK(blacklist.load(path, error));
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+
+    sdp::Config config;
+    config.http.replace_host = true;
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+    engine.set_blacklist(std::move(blacklist), true);
+
+    sdp::win::PacketBuffer listed;
+    make_tcp_payload_packet(listed, true, 50000, 80, byte_string(
+        "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"));
+    CHECK(engine.process(listed).recalculate_checksums);
+    CHECK(payload_string(listed).find("\r\nhoSt: example.com") !=
+          std::string::npos);
+
+    sdp::win::PacketBuffer other;
+    make_tcp_payload_packet(other, true, 50001, 80, byte_string(
+        "GET / HTTP/1.1\r\nHost: other.com\r\n\r\n"));
+    CHECK(!engine.process(other).recalculate_checksums);
+    CHECK(payload_string(other).find("\r\nHost: other.com") !=
+          std::string::npos);
+}
+
 void test_engine_passive_dpi()
 {
     sdp::Config config;
@@ -1417,6 +1454,7 @@ int main()
     test_engine_concurrent_dns_redirect();
     test_engine_inbound_window_size();
     test_engine_passive_dpi();
+    test_engine_blacklist_gating();
     test_copy_packet();
     test_receive_error_classes();
 

@@ -1,0 +1,13 @@
+# Files and directories shipped in the release archive and installed copy.
+# The executable and WinDivert files are added by the build separately.
+LICENSE
+NOTICE
+README.md
+README.ru.md
+README.tr.md
+SECURITY.md
+install.ps1
+release-files.txt
+docs/
+tools/
+resources/
