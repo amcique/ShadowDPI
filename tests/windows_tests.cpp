@@ -15,6 +15,7 @@
 #include "shadowdpi/fake_payloads.hpp"
 #include "shadowdpi/filter.hpp"
 #include "shadowdpi/log.hpp"
+#include "shadowdpi/tls.hpp"
 #include "shadowdpi/types.hpp"
 #include "shadowdpi/util.hpp"
 #include "divert.hpp"
@@ -963,6 +964,48 @@ void test_engine_standalone_native_frag()
     CHECK(sink.packets.size() == 2);
 }
 
+void test_engine_by_sni_split()
+{
+    sdp::Config config;
+    config.https.fragment_enabled = true;
+    config.https.fragment_size = 2;
+    config.https.by_sni = true;
+    config.native_frag = true;
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    const auto hello = sdp::make_fake_client_hello("example.com");
+    sdp::win::PacketBuffer packet;
+    make_tcp_payload_packet(packet, true, 50000, 443, hello);
+    CHECK(!engine.process(packet).reinject);
+    CHECK(sink.packets.size() == 2);
+
+    const auto sni = sdp::extract_sni(hello);
+    CHECK(sni.has_value());
+    if (!sni || sink.packets.size() != 2) {
+        return;
+    }
+
+    const auto head = parse_recorded(sink.packets[0]);
+    const auto tail = parse_recorded(sink.packets[1]);
+    const std::size_t head_name_length =
+        head.payload_length - static_cast<UINT>(sni->offset);
+    CHECK(head_name_length > 0);
+    CHECK(head_name_length < sni->hostname.size());
+    CHECK(head.payload_length ==
+          static_cast<UINT>(sni->offset + sni->hostname.size() / 2));
+
+    const std::string head_name(
+        reinterpret_cast<const char*>(head.payload + sni->offset),
+        head_name_length);
+    const std::string tail_name(
+        reinterpret_cast<const char*>(tail.payload),
+        sni->hostname.size() - head_name_length);
+    CHECK(head_name + tail_name == "example.com");
+}
+
 void test_engine_fragment_flags()
 {
     sdp::Config config;
@@ -1345,6 +1388,7 @@ int main()
     test_engine_http_rewrites();
     test_engine_native_fragments();
     test_engine_standalone_native_frag();
+    test_engine_by_sni_split();
     test_engine_fragment_flags();
     test_engine_send_failure();
     test_engine_fake_packet();

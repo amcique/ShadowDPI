@@ -11,8 +11,8 @@
 namespace sdp {
 namespace {
 
-constexpr std::string_view kHttp10Redirect = "HTTP/1.0 302 ";
-constexpr std::string_view kHttp11Redirect = "HTTP/1.1 302 ";
+constexpr std::string_view kHttp10Prefix = "HTTP/1.0 ";
+constexpr std::string_view kHttp11Prefix = "HTTP/1.1 ";
 constexpr std::string_view kHostReplacement = "\r\nhoSt: ";
 constexpr std::string_view kLocationHttp = "\r\nLocation: http://";
 constexpr std::string_view kConnectionClose = "\r\nConnection: close";
@@ -63,14 +63,14 @@ constexpr std::array<std::string_view, 7> kHttpMethods = {
     return static_cast<std::size_t>(iterator - haystack.begin());
 }
 
-[[nodiscard]] bool starts_with(std::span<const std::byte> haystack,
-                              std::string_view needle) noexcept
+[[nodiscard]] bool starts_with_text(std::span<const std::byte> haystack,
+                                    std::string_view needle) noexcept
 {
     if (haystack.size() < needle.size()) {
         return false;
     }
     for (std::size_t index = 0; index < needle.size(); ++index) {
-        if (!byte_matches(haystack[index], needle[index], false)) {
+        if (!byte_matches(haystack[index], needle[index], true)) {
             return false;
         }
     }
@@ -117,13 +117,31 @@ std::optional<HeaderLocation> find_header(
 
 bool is_passive_dpi_redirect(std::span<const std::byte> payload)
 {
-    if (!starts_with(payload, kHttp11Redirect) &&
-        !starts_with(payload, kHttp10Redirect)) {
+    if (!starts_with_text(payload, kHttp10Prefix) &&
+        !starts_with_text(payload, kHttp11Prefix)) {
+        return false;
+    }
+    if (payload.size() < 12) {
         return false;
     }
 
-    return find_bytes(payload, kLocationHttp).has_value() &&
-           find_bytes(payload, kConnectionClose).has_value();
+    const auto digit = [](std::byte value) -> int {
+        const auto character = std::to_integer<unsigned char>(value);
+        return character >= '0' && character <= '9' ? character - '0' : -1;
+    };
+    const int hundreds = digit(payload[9]);
+    const int tens = digit(payload[10]);
+    const int ones = digit(payload[11]);
+    if (hundreds < 0 || tens < 0 || ones < 0) {
+        return false;
+    }
+    const int status = hundreds * 100 + tens * 10 + ones;
+    if (status != 301 && status != 302) {
+        return false;
+    }
+
+    return find_bytes(payload, kLocationHttp, true).has_value() &&
+           find_bytes(payload, kConnectionClose, true).has_value();
 }
 
 std::optional<std::size_t> find_http_method_end(

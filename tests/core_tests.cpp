@@ -419,6 +419,7 @@ void test_blacklist()
     CHECK(blacklist.matches("target.org"));
     CHECK(blacklist.matches("deep.sub.target.org"));
     CHECK(blacklist.matches("only.test"));
+    CHECK(blacklist.matches("www.example.com."));
     CHECK(!blacklist.matches("notexample.com"));
     CHECK(!blacklist.matches("example.org"));
     CHECK(!blacklist.matches(""));
@@ -691,6 +692,14 @@ void test_http_helpers()
         "HTTP/1.1 302 Found\r\nLocation: http://example.com/\r\n"
         "Connection: close\r\n\r\n");
     CHECK(sdp::is_passive_dpi_redirect(redirect));
+    const auto lowercase_redirect = as_bytes(
+        "http/1.1 302 Found\r\nlocation: http://example.com/\r\n"
+        "connection: close\r\n\r\n");
+    CHECK(sdp::is_passive_dpi_redirect(lowercase_redirect));
+    const auto moved_redirect = as_bytes(
+        "HTTP/1.1 301 Moved\r\nLocation: http://example.com/\r\n"
+        "Connection: close\r\n\r\n");
+    CHECK(sdp::is_passive_dpi_redirect(moved_redirect));
     const auto ordinary = as_bytes("HTTP/1.1 200 OK\r\n\r\n");
     CHECK(!sdp::is_passive_dpi_redirect(ordinary));
 
@@ -712,20 +721,43 @@ void test_tls_helpers()
     CHECK(sni->hostname == "example.com");
     CHECK(sni->offset + sni->hostname.size() <= hello.size());
 
-    // A malformed candidate before the real SNI must not abort the scan.
-    std::vector<std::byte> decoy(9, std::byte{0});
-    decoy[3] = std::byte{5};
-    decoy[5] = std::byte{3};
-    std::vector<std::byte> with_decoy = decoy;
-    with_decoy.insert(with_decoy.end(), hello.begin(), hello.end());
+    // A decoy pattern in the random field must not become the SNI.
+    auto with_decoy = hello;
+    with_decoy[11] = std::byte{0};
+    with_decoy[12] = std::byte{0};
+    with_decoy[13] = std::byte{0};
+    with_decoy[14] = std::byte{5};
+    with_decoy[15] = std::byte{0};
+    with_decoy[16] = std::byte{3};
+    with_decoy[17] = std::byte{0};
+    with_decoy[18] = std::byte{8};
+    with_decoy[19] = std::byte{'a'};
     const auto decoy_sni = sdp::extract_sni(with_decoy);
     CHECK(decoy_sni.has_value());
     CHECK(decoy_sni->hostname == "example.com");
+
+    // The SNI list and host lengths are 16-bit, so long names still parse.
+    const std::string long_name = std::string(249, 'a') + ".com";
+    const auto long_hello = sdp::make_fake_client_hello(long_name);
+    const auto long_sni = sdp::extract_sni(long_hello);
+    CHECK(long_sni.has_value());
+    if (long_sni) {
+        CHECK(long_sni->hostname == long_name);
+    }
+
+    // A malformed handshake record is not a ClientHello.
+    std::vector<std::byte> junk(20, std::byte{0});
+    junk[0] = std::byte{0x16};
+    junk[1] = std::byte{0x03};
+    junk[4] = std::byte{5};
+    CHECK(!sdp::extract_sni(junk).has_value());
 
     const auto two_bytes = as_bytes(std::string_view{"\x16\x03", 2});
     CHECK(sdp::is_tls_client_hello_prefix(two_bytes));
     const auto garbage = as_bytes(std::string_view{"\x17\x03\x03", 3});
     CHECK(!sdp::is_tls_client_hello_prefix(garbage));
+    CHECK(sdp::is_tls_client_hello_prefix(
+        as_bytes(std::string_view{"\x16\x03\x02", 3})));
 
     CHECK(!sdp::default_http_fake().empty());
     CHECK(!sdp::default_https_fake().empty());

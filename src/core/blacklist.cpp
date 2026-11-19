@@ -57,7 +57,10 @@ bool Blacklist::matches(std::string_view host) const
         return false;
     }
 
-    const std::string lowered = to_ascii_lower(host);
+    std::string lowered = to_ascii_lower(host);
+    if (lowered.back() == '.') {
+        lowered.pop_back();
+    }
     if (hosts_.find(lowered) != hosts_.end()) {
         return true;
     }

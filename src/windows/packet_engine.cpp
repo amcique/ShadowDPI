@@ -175,7 +175,9 @@ PacketEngine::TcpDataResult PacketEngine::process_tls_client_hello(
     if (config_.native_frag) {
         result.action.recalculate_checksums = true;
         if (config_.https.by_sni && sni) {
-            result.sni_offset = sni->offset;
+            // Split inside the hostname so neither segment carries the full
+            // name; a stateless DPI can no longer read SNI from one segment.
+            result.sni_split = sni->offset + sni->hostname.size() / 2;
         }
     }
     return result;
@@ -455,9 +457,8 @@ bool PacketEngine::send_fragments(const PacketBuffer& packet,
     }
     else if (config_.https.fragment_enabled &&
              parsed.tcp->DstPort != htons(kHttpPort)) {
-        if (config_.https.by_sni && result.sni_offset) {
-            fragment_size =
-                static_cast<unsigned int>(*result.sni_offset);
+        if (config_.https.by_sni && result.sni_split) {
+            fragment_size = static_cast<unsigned int>(*result.sni_split);
         }
         else {
             fragment_size = config_.https.fragment_size;

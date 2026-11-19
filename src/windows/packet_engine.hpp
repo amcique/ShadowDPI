@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -41,7 +42,7 @@ public:
 private:
     struct TcpDataResult {
         PacketAction action;
-        std::optional<std::size_t> sni_offset;
+        std::optional<std::size_t> sni_split;
     };
 
     enum class FragmentPart {
