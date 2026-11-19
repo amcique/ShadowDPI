@@ -40,8 +40,8 @@ std::optional<DivertHandle> DivertHandle::open(std::string_view filter,
 
     const std::string filter_string{filter};
     HANDLE handle = api.open(filter_string.c_str(), layer, priority, flags);
-    if (handle == INVALID_HANDLE_VALUE) {
-        const DWORD error_code = GetLastError();
+    const DWORD error_code = GetLastError();
+    if (handle == INVALID_HANDLE_VALUE || handle == nullptr) {
         error = format_error_message(error_code);
         const std::string hint = divert_error_hint(error_code);
         if (!hint.empty()) {

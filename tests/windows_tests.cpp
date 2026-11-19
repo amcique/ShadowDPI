@@ -17,6 +17,7 @@
 #include "shadowdpi/log.hpp"
 #include "shadowdpi/types.hpp"
 #include "shadowdpi/util.hpp"
+#include "divert.hpp"
 #include "fake_sender.hpp"
 #include "packet.hpp"
 #include "packet_engine.hpp"
@@ -1264,6 +1265,19 @@ void test_copy_packet()
     source.length = static_cast<UINT>(sdp::kMaxPacketSize + 1);
     sdp::win::copy_packet(destination, source);
     CHECK(destination.length == sdp::kMaxPacketSize);
+
+    source.length = static_cast<UINT>(sdp::kMaxPacketSize);
+    sdp::win::copy_packet(destination, source);
+    CHECK(destination.length == sdp::kMaxPacketSize);
+}
+
+void test_receive_error_classes()
+{
+    CHECK(sdp::kMaxPacketSize == 65575);
+    CHECK(sdp::win::is_recv_buffer_error(ERROR_INSUFFICIENT_BUFFER));
+    CHECK(!sdp::win::is_recv_buffer_error(ERROR_NO_DATA));
+    CHECK(sdp::win::is_recv_shutdown_error(ERROR_NO_DATA));
+    CHECK(!sdp::win::is_recv_shutdown_error(ERROR_INSUFFICIENT_BUFFER));
 }
 
 } // namespace
@@ -1293,6 +1307,7 @@ int main()
     test_engine_inbound_window_size();
     test_engine_passive_dpi();
     test_copy_packet();
+    test_receive_error_classes();
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";

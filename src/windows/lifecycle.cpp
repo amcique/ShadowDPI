@@ -36,6 +36,13 @@ void ShutdownCoordinator::set_stop_callback(std::function<void()> callback)
     callback_ = std::move(callback);
 }
 
+void ShutdownCoordinator::reset() noexcept
+{
+    stop_.store(false, std::memory_order_release);
+    std::lock_guard lock{mutex_};
+    callback_ = {};
+}
+
 void ShutdownCoordinator::request_stop() noexcept
 {
     stop_.store(true, std::memory_order_release);

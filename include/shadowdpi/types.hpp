@@ -8,7 +8,8 @@
 namespace sdp {
 
 inline constexpr std::size_t kMaxHostLength = 253;
-inline constexpr std::size_t kMaxPacketSize = 9016;
+// Matches WINDIVERT_MTU_MAX: a 40-byte IPv6 header plus a 16-bit payload.
+inline constexpr std::size_t kMaxPacketSize = 65575;
 inline constexpr std::size_t kMaxFakePackets = 30;
 inline constexpr std::size_t kMaxFakePayloadSize = 1420;
 

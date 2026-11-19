@@ -6,6 +6,9 @@
 
 #include "windivert_api.hpp"
 
+static_assert(sdp::kMaxPacketSize == WINDIVERT_MTU_MAX,
+              "packet buffer must hold the largest packet WinDivert can deliver");
+
 namespace sdp::win {
 namespace {
 

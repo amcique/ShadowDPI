@@ -18,6 +18,9 @@ public:
     /// Registers the callback that shuts down WinDivert handles.
     void set_stop_callback(std::function<void()> callback);
 
+    /// Clears stop state and callbacks before a new run in the same process.
+    void reset() noexcept;
+
     /// Requests shutdown. Safe to call from any system callback thread.
     void request_stop() noexcept;
 

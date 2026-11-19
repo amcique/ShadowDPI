@@ -22,6 +22,7 @@
 #include "lifecycle.hpp"
 #include "packet.hpp"
 #include "packet_engine.hpp"
+#include "service.hpp"
 #include "win_headers.hpp"
 #include "windivert_api.hpp"
 
@@ -93,6 +94,7 @@ private:
     void process(PacketBuffer& packet);
     void reinject(PacketBuffer& packet, const PacketAction& action);
     void note_send_failure();
+    void note_skipped_packet();
     bool open_drop_filter(std::string_view filter,
                           std::string_view description);
 
@@ -105,6 +107,7 @@ private:
     DivertSink sink_;
     PacketEngine engine_;
     std::uint64_t send_failures_{0};
+    std::uint64_t skipped_packets_{0};
 };
 
 Application::~Application()
@@ -162,6 +165,7 @@ int Application::run()
     });
 
     write_ready_file();
+    signal_service_ready();
 
     if (config_.debug_exit) {
         logger_.info("Debug exit: filters opened successfully.");
@@ -381,10 +385,17 @@ int Application::loop()
     PacketBuffer packet;
     while (!ShutdownCoordinator::instance().stop_requested()) {
         if (!main_handle_.receive(packet)) {
-            if (ShutdownCoordinator::instance().stop_requested()) {
+            const DWORD error = GetLastError();
+            if (ShutdownCoordinator::instance().stop_requested() ||
+                is_recv_shutdown_error(error)) {
                 return 0;
             }
-            logger_.error("error receiving packet: " + last_error_message());
+            if (is_recv_buffer_error(error)) {
+                note_skipped_packet();
+                continue;
+            }
+            logger_.error("error receiving packet: " +
+                          format_error_message(error));
             return 1;
         }
 
@@ -424,8 +435,19 @@ void Application::note_send_failure()
     }
 }
 
+void Application::note_skipped_packet()
+{
+    ++skipped_packets_;
+    if (skipped_packets_ == 1 || skipped_packets_ % 1000 == 0) {
+        logger_.warning("skipped oversized packet (" +
+                        std::to_string(skipped_packets_) + " skipped)");
+    }
+}
+
 int run_application(int argc, char* argv[])
 {
+    ShutdownCoordinator::instance().reset();
+
     try {
         Config config = parse_cli(argc, argv);
         Application application{std::move(config)};

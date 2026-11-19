@@ -51,6 +51,18 @@ private:
 /// Returns a human readable description of the last Win32 error.
 [[nodiscard]] std::string last_error_message();
 
+/// A truncated receive still consumes its packet.
+[[nodiscard]] inline bool is_recv_buffer_error(DWORD error) noexcept
+{
+    return error == ERROR_INSUFFICIENT_BUFFER;
+}
+
+/// A shut down handle has no more packets to deliver.
+[[nodiscard]] inline bool is_recv_shutdown_error(DWORD error) noexcept
+{
+    return error == ERROR_NO_DATA;
+}
+
 /// Formats a specific Win32 error code.
 [[nodiscard]] std::string format_error_message(DWORD error);
 
