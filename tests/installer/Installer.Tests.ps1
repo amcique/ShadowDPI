@@ -1,7 +1,9 @@
-$scriptPath = Join-Path $PSScriptRoot '..\..\install.ps1'
-. $scriptPath
-
 Describe 'install.ps1 pure functions' {
+    BeforeAll {
+        $scriptPath = Join-Path $PSScriptRoot '..\..\install.ps1'
+        . $scriptPath
+    }
+
     It 'reads inline URLs and adds a scheme to bare hosts' {
         $urls = Read-UrlList -InlineUrls @('example.com', 'https://other.org/') -File ''
         $urls.Count | Should -Be 2
