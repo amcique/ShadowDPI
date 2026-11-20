@@ -24,8 +24,8 @@ Open an elevated PowerShell in the extracted release folder and run:
 .\install.ps1
 ```
 
-The menu offers Install, Upgrade, Reconfigure, Uninstall, Scan, and Exit,
-depending on what is already installed. Choosing Install copies the files to
+The menu offers Install, Upgrade, Reconfigure, Repair, Uninstall, Scan, and
+Exit, depending on what is already installed. Choosing Install copies the files to
 `%ProgramFiles%\ShadowDPI`, registers an auto-start service named `ShadowDPI`
 with `-9`, and starts the service.
 
@@ -55,11 +55,39 @@ To install without starting the service after it is registered:
 | `install` | Installs from the current folder. If ShadowDPI is already installed, it reinstalls the files and preserves the existing service settings. |
 | `upgrade` | Requires an existing installation. Replaces the program files and preserves the service name, arguments, start type, and running state. |
 | `reconfigure` | Requires an existing installation. Changes the service settings without replacing program files. |
+| `repair` | Requires an existing installation. Re-copies the files from this release folder and restarts the service if it was running. Service settings are preserved. |
 | `uninstall` | Stops and deletes the service, then removes the install folder. |
 | `scan` | Runs the strategy scanner described in [scan.md](scan.md). |
 
 `-Action` defaults to `menu`, so double-clicking or running the script without
 arguments is safe.
+
+## Automation and logging
+
+`-Silent` suppresses console output and confirmation prompts. Combine it with
+`-Force` for unattended uninstalls:
+
+```powershell
+.\install.ps1 -Action install -Silent -Force
+.\install.ps1 -Action uninstall -Silent -Force
+```
+
+`-LogPath` writes a timestamped log. By default the log goes to
+`%ProgramData%\ShadowDPI\logs\install.log`:
+
+```powershell
+.\install.ps1 -Action upgrade -LogPath C:\Temp\shadowdpi-install.log
+```
+
+When a `*.sha256` manifest is found next to `install.ps1` or in the release
+folder, the installer verifies `WinDivert.dll` and `WinDivert64.sys` before
+copying them. A mismatch aborts the install. Without a manifest the check is
+skipped with a warning.
+
+A successful install registers an Add/Remove Programs entry named ShadowDPI,
+so uninstall also works from Windows Settings. The entry's uninstall command
+uses `-Action uninstall -Force -Silent`, and the QuietUninstallString variant
+adds `-Quiet`.
 
 ## Install layout
 

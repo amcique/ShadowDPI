@@ -58,6 +58,14 @@ folder that contains this script, which is the extracted release folder.
 .PARAMETER Quiet
 Do not ask configuration questions. Explicit parameters and defaults are used.
 
+.PARAMETER Silent
+Suppress console output and confirmation prompts. Intended for automation.
+Use with -Force for uninstall.
+
+.PARAMETER LogPath
+Write a timestamped install log to this file. Defaults to
+%ProgramData%\ShadowDPI\logs\install.log.
+
 .PARAMETER Force
 Skip confirmation prompts. Uninstall from a non-interactive session requires
 this switch.
@@ -149,7 +157,7 @@ Keep the temporary directory with ready files and process logs.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('menu', 'install', 'upgrade', 'reconfigure', 'uninstall', 'scan')]
+    [ValidateSet('menu', 'install', 'upgrade', 'reconfigure', 'repair', 'uninstall', 'scan')]
     [string]$Action = 'menu',
 
     [string]$InstallPath = '',
@@ -159,6 +167,8 @@ param(
     [switch]$NoStart,
     [string]$SourcePath = '',
     [switch]$Quiet,
+    [switch]$Silent,
+    [string]$LogPath = '',
     [switch]$Force,
 
     [string[]]$Urls,
@@ -201,6 +211,10 @@ foreach ($key in $PSBoundParameters.Keys) {
     $script:BoundParameters[$key] = $PSBoundParameters[$key]
 }
 
+$script:LogFile = ''
+$script:Silent = [bool]$Silent
+$script:UninstallKeyName = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ShadowDPI'
+
 $script:UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 $script:WorkRoot = $null
 $script:ActiveProcess = $null
@@ -212,14 +226,58 @@ $script:InstallMetadataName = 'install.json'
 $script:ScriptPath = $PSCommandPath
 $script:VersionCache = @{}
 
+function Write-LogLine {
+    param([string]$Level, [string]$Message)
+
+    if (-not $script:LogFile) {
+        return
+    }
+    try {
+        $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
+        Add-Content -LiteralPath $script:LogFile -Value "$stamp [$Level] $Message" -Encoding UTF8 -ErrorAction Stop
+    }
+    catch {
+    }
+}
+
+function Initialize-InstallLog {
+    param([string]$Path)
+
+    if (-not $Path) {
+        $data = [Environment]::GetEnvironmentVariable('ProgramData')
+        if (-not $data) {
+            $data = Join-Path $env:SystemDrive 'ProgramData'
+        }
+        $Path = Join-Path $data 'ShadowDPI\logs\install.log'
+    }
+    try {
+        $full = Resolve-FullPath -Path $Path
+        $directory = Split-Path -Parent $full
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        }
+        $script:LogFile = $full
+        Write-LogLine -Level INFO -Message 'ShadowDPI installer started.'
+    }
+    catch {
+        $script:LogFile = ''
+    }
+}
+
 function Write-Info {
     param([string]$Message)
-    Write-Host $Message
+    if (-not $script:Silent) {
+        Write-Host $Message
+    }
+    Write-LogLine -Level INFO -Message $Message
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Warning $Message
+    if (-not $script:Silent) {
+        Write-Warning $Message
+    }
+    Write-LogLine -Level WARN -Message $Message
 }
 
 function Read-ValueWithDefault {
@@ -1261,7 +1319,10 @@ function Get-InstallPath {
 }
 
 function Get-SourceInfo {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [string]$HashFile = ''
+    )
 
     if ($Path) {
         $base = Resolve-FullPath -Path $Path
@@ -1283,6 +1344,16 @@ function Get-SourceInfo {
         throw "The release folder is incomplete. Missing from $base`: $($missing -join ', ')."
     }
 
+    if (-not $HashFile) {
+        $HashFile = Find-ReleaseHashFile -SourcePath $base
+    }
+    foreach ($name in 'WinDivert.dll', 'WinDivert64.sys') {
+        $candidate = Join-Path $base $name
+        if (-not (Test-FileHashMatch -Path $candidate -HashFile $HashFile -LeafName $name)) {
+            throw "The hash of $name does not match the release manifest. Unpack the release archive again."
+        }
+    }
+
     $versionText = Get-ExeVersion -ExePath $exePath
     return [pscustomobject]@{
         Path        = $base
@@ -1290,6 +1361,56 @@ function Get-SourceInfo {
         VersionText = $versionText
         Version     = (Get-VersionNumber -Text $versionText)
     }
+}
+
+function Find-ReleaseHashFile {
+    param([string]$SourcePath)
+
+    if ($SourcePath) {
+        $base = Resolve-FullPath -Path $SourcePath
+    }
+    else {
+        $base = $PSScriptRoot
+    }
+    $patterns = @(
+        (Join-Path $base '*.sha256'),
+        (Join-Path (Split-Path -Parent $base) '*.sha256')
+    )
+    foreach ($pattern in $patterns) {
+        foreach ($file in @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue)) {
+            return $file.FullName
+        }
+    }
+    return ''
+}
+
+function Test-FileHashMatch {
+    param(
+        [string]$Path,
+        [string]$HashFile,
+        [string]$LeafName
+    )
+
+    if (-not $HashFile -or -not (Test-Path -LiteralPath $HashFile -PathType Leaf)) {
+        return $true
+    }
+
+    $found = $false
+    foreach ($line in @(Get-Content -LiteralPath $HashFile -ErrorAction SilentlyContinue)) {
+        if ($line -match '^\s*([0-9a-fA-F]{64})\s+(\S+)\s*$') {
+            $expected = $Matches[1].ToLowerInvariant()
+            $name = Split-Path -Leaf $Matches[2]
+            if ($name -ieq $LeafName) {
+                $found = $true
+                $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                return $actual -eq $expected
+            }
+        }
+    }
+    if (-not $found) {
+        Write-Warn "No hash for $LeafName in $HashFile; skipping that check."
+    }
+    return $true
 }
 
 function Test-SamePath {
@@ -2902,7 +3023,10 @@ function Invoke-Scan {
     }
 }
 catch {
-    Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+    if (-not $script:Silent) {
+        Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+    }
+    Write-LogLine -Level ERROR -Message $_.Exception.Message
     $exitCode = 1
 }
 finally {
@@ -3032,7 +3156,7 @@ function Invoke-InstallAction {
         throw "ShadowDPI is not installed at $path. Run the installer with -Action install first."
     }
 
-    if ($Mode -eq 'install' -and $state.Exists -and -not $AssumeYes -and -not $Force) {
+    if ($Mode -eq 'install' -and $state.Exists -and -not $AssumeYes -and -not $Silent -and -not $Force) {
         if (-not (Test-InteractiveHost)) {
             throw "ShadowDPI is already installed at $path. Use -Action upgrade or pass -Force."
         }
@@ -3043,7 +3167,7 @@ function Invoke-InstallAction {
     }
 
     $existing = $state.Exists
-    if (-not $existing -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+    if (-not $existing -and -not $Quiet -and -not $Silent -and -not $Force -and (Test-InteractiveHost)) {
         $entered = Read-ValueWithDefault -Prompt 'Install path' -Default $path
         $path = Assert-SafeInstallPath -Path (Resolve-FullPath -Path $entered)
         $state = Get-InstalledState -Path $path
@@ -3113,7 +3237,7 @@ function Invoke-InstallAction {
         $startAfter = $false
     }
 
-    if (-not $existing -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+    if (-not $existing -and -not $Quiet -and -not $Silent -and -not $Force -and (Test-InteractiveHost)) {
         if (-not $NoService) {
             $serviceEnabled = Read-YesNo -Prompt 'Install and start a Windows service?' -Default $serviceEnabled
         }
@@ -3186,6 +3310,7 @@ function Invoke-InstallAction {
         $running = Update-ServiceConfiguration -ExePath $serviceExe -Name $serviceName -Arguments $serviceArgs -StartType $startType -Enabled $serviceEnabled -StartAfter $startAfter -OldName $oldServiceName
 
         Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $serviceEnabled -ServiceName $serviceName -ServiceArgs $serviceArgs -StartType $startType -Running $running -Payload $payload
+        Set-UninstallRegistration -VersionText $source.VersionText -InstallPath $path -ScriptPath (Join-Path $path 'install.ps1')
         $completed = $true
     }
     catch {
@@ -3276,7 +3401,7 @@ function Invoke-ReconfigureAction {
         $startAfter = $false
     }
 
-    if (-not $NoService -and -not $Quiet -and -not $Force -and (Test-InteractiveHost)) {
+    if (-not $NoService -and -not $Quiet -and -not $Silent -and -not $Force -and (Test-InteractiveHost)) {
         Write-Info ''
         Write-InstallStatus -State $state
         Write-Info ''
@@ -3398,9 +3523,9 @@ function Invoke-UninstallAction {
         return 0
     }
 
-    if (-not $Force) {
+    if (-not $Force -and -not $Silent) {
         if (-not (Test-InteractiveHost)) {
-            throw 'Uninstall from a non-interactive session requires -Force.'
+            throw 'Uninstall from a non-interactive session requires -Force or -Silent.'
         }
         if (-not (Read-YesNo -Prompt "Remove ShadowDPI from $path and delete service $serviceName?" -Default $false)) {
             Write-Info 'Cancelled.'
@@ -3448,6 +3573,7 @@ function Invoke-UninstallAction {
     }
 
     if ($removedSomething) {
+        Remove-UninstallRegistration
         Write-Info 'ShadowDPI was removed.'
     }
     else {
@@ -3456,9 +3582,76 @@ function Invoke-UninstallAction {
     return 0
 }
 
+function Set-UninstallRegistration {
+    param(
+        [string]$VersionText,
+        [string]$InstallPath,
+        [string]$ScriptPath,
+        [string]$Root = 'Registry::HKEY_LOCAL_MACHINE'
+    )
+
+    $key = Join-Path $Root $script:UninstallKeyName
+    if (-not (Test-Path -LiteralPath $key)) {
+        New-Item -Path $key -Force | Out-Null
+    }
+    $exe = Join-Path $InstallPath 'shadowdpi.exe'
+    $uninstall = (Quote-Argument -Value $ScriptPath) + ' -Action uninstall -InstallPath ' +
+                 (Quote-Argument -Value $InstallPath) + ' -Force -Silent'
+
+    Set-ItemProperty -LiteralPath $key -Name DisplayName -Value 'ShadowDPI'
+    Set-ItemProperty -LiteralPath $key -Name DisplayVersion -Value (Get-VersionNumber -Text $VersionText)
+    Set-ItemProperty -LiteralPath $key -Name Publisher -Value 'amcique'
+    Set-ItemProperty -LiteralPath $key -Name InstallLocation -Value $InstallPath
+    Set-ItemProperty -LiteralPath $key -Name UninstallString -Value $uninstall
+    Set-ItemProperty -LiteralPath $key -Name QuietUninstallString -Value ($uninstall + ' -Quiet')
+    Set-ItemProperty -LiteralPath $key -Name DisplayIcon -Value "$exe,0"
+    Set-ItemProperty -LiteralPath $key -Name NoModify -Value 1 -Type DWord
+    Set-ItemProperty -LiteralPath $key -Name NoRepair -Value 1 -Type DWord
+}
+
+function Remove-UninstallRegistration {
+    param([string]$Root = 'Registry::HKEY_LOCAL_MACHINE')
+
+    $key = Join-Path $Root $script:UninstallKeyName
+    if (Test-Path -LiteralPath $key) {
+        Remove-Item -LiteralPath $key -Recurse -Force
+    }
+}
+
+function Invoke-RepairAction {
+    Assert-Administrator
+    Assert-X64Windows
+
+    $path = Get-InstallPath
+    $state = Get-InstalledState -Path $path
+    if (-not $state.Exists) {
+        throw "ShadowDPI is not installed at $path."
+    }
+
+    $source = Get-SourceInfo -Path $SourcePath
+    $serviceName = $state.ServiceName
+    if ($null -ne $state.Service) {
+        $serviceName = $state.Service.Name
+        [void](Stop-ShadowService -Name $serviceName)
+    }
+    [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
+
+    $payload = @(Copy-InstallPayload -SourcePath $source.Path -DestinationPath $path -ScriptPath $script:ScriptPath)
+    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $state.ServiceEnabled -ServiceName $state.ServiceName -ServiceArgs $state.ServiceArgs -StartType $state.StartType -Running $false -Payload $payload
+
+    $running = $false
+    if ($null -ne $state.Service) {
+        Start-ShadowService -Name $serviceName
+        $running = $true
+    }
+    Set-UninstallRegistration -VersionText $source.VersionText -InstallPath $path -ScriptPath (Join-Path $path 'install.ps1')
+    Write-Info "ShadowDPI at $path was repaired."
+    return 0
+}
+
 function Invoke-InteractiveMenu {
     if (-not (Test-InteractiveHost)) {
-        throw 'The interactive menu requires a console. Use -Action install, upgrade, reconfigure, uninstall, or scan.'
+        throw 'The interactive menu requires a console. Use -Action install, upgrade, reconfigure, repair, uninstall, or scan.'
     }
 
     $menuExitCode = 0
@@ -3479,9 +3672,10 @@ function Invoke-InteractiveMenu {
             Write-Info '  1. Reinstall'
             Write-Info '  2. Upgrade from this folder'
             Write-Info '  3. Reconfigure'
-            Write-Info '  4. Uninstall'
-            Write-Info '  5. Scan for a working strategy'
-            Write-Info '  6. Exit'
+            Write-Info '  4. Repair'
+            Write-Info '  5. Uninstall'
+            Write-Info '  6. Scan for a working strategy'
+            Write-Info '  7. Exit'
         }
         else {
             Write-Info '  1. Install'
@@ -3510,18 +3704,22 @@ function Invoke-InteractiveMenu {
                         $didAction = $true
                     }
                     '4' {
-                        [void](Invoke-UninstallAction)
+                        [void](Invoke-RepairAction)
                         $didAction = $true
                     }
                     '5' {
-                        [void](Invoke-MenuScan)
+                        [void](Invoke-UninstallAction)
                         $didAction = $true
                     }
                     '6' {
+                        [void](Invoke-MenuScan)
+                        $didAction = $true
+                    }
+                    '7' {
                         $exit = $true
                     }
                     default {
-                        Write-Warn 'Enter 1, 2, 3, 4, 5, or 6.'
+                        Write-Warn 'Enter 1 through 7.'
                     }
                 }
             }
@@ -3562,6 +3760,8 @@ function Invoke-InteractiveMenu {
 
 if ($MyInvocation.InvocationName -ne '.') {
 
+Initialize-InstallLog -Path $LogPath
+
 $exitCode = 0
 try {
     switch ($Action) {
@@ -3577,6 +3777,9 @@ try {
         'reconfigure' {
             $exitCode = Invoke-ReconfigureAction
         }
+        'repair' {
+            $exitCode = Invoke-RepairAction
+        }
         'uninstall' {
             $exitCode = Invoke-UninstallAction
         }
@@ -3586,7 +3789,10 @@ try {
     }
 }
 catch {
-    Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+    if (-not $script:Silent) {
+        Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+    }
+    Write-LogLine -Level ERROR -Message $_.Exception.Message
     $exitCode = 1
 }
 

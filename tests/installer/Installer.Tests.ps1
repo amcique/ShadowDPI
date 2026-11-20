@@ -63,4 +63,53 @@ Describe 'install.ps1 pure functions' {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    It 'registers and removes an Add/Remove Programs entry' {
+        $root = 'Registry::HKEY_CURRENT_USER\Software\ShadowDPI-Installer-Test'
+        $key = Join-Path $root $script:UninstallKeyName
+        try {
+            Set-UninstallRegistration -VersionText 'ShadowDPI 0.4.0 (C++20)' -InstallPath 'C:\Tools\ShadowDPI' -ScriptPath 'C:\Tools\ShadowDPI\install.ps1' -Root $root
+            (Get-ItemProperty -LiteralPath $key).DisplayName | Should -Be 'ShadowDPI'
+            (Get-ItemProperty -LiteralPath $key).DisplayVersion | Should -Be '0.4.0'
+            (Get-ItemProperty -LiteralPath $key).QuietUninstallString | Should -Match '-Silent'
+            Remove-UninstallRegistration -Root $root
+            Test-Path -LiteralPath $key | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'verifies bundled driver hashes and rejects tampered files' {
+        $root = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-hash-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $dll = Join-Path $root 'WinDivert.dll'
+        $manifest = Join-Path $root 'release.sha256'
+        try {
+            Set-Content -LiteralPath $dll -Value 'original'
+            $hash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content -LiteralPath $manifest -Value "$hash  ./WinDivert.dll"
+            Test-FileHashMatch -Path $dll -HashFile $manifest -LeafName 'WinDivert.dll' | Should -BeTrue
+
+            Set-Content -LiteralPath $dll -Value 'tampered'
+            Test-FileHashMatch -Path $dll -HashFile $manifest -LeafName 'WinDivert.dll' | Should -BeFalse
+            Test-FileHashMatch -Path $dll -HashFile '' -LeafName 'WinDivert.dll' | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'creates an install log at the requested path' {
+        $log = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-log-' + [Guid]::NewGuid().ToString('N') + '.log')
+        try {
+            Initialize-InstallLog -Path $log
+            Test-Path -LiteralPath $log | Should -BeTrue
+            (Get-Content -LiteralPath $log -Raw) | Should -Match 'installer started'
+        }
+        finally {
+            $script:LogFile = ''
+            Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
