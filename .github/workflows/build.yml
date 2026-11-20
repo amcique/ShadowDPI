@@ -25,6 +25,7 @@ on:
       - 'README.tr.md'
       - 'SECURITY.md'
       - 'packaging/**'
+      - '.config/dotnet-tools.json'
       - '.github/workflows/build.yml'
   pull_request:
     paths:
@@ -43,6 +44,7 @@ on:
       - 'README.ru.md'
       - 'README.tr.md'
       - 'packaging/**'
+      - '.config/dotnet-tools.json'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
@@ -163,6 +165,66 @@ jobs:
           New-Item -ItemType Directory -Path $jsonThirdParty | Out-Null
           Copy-Item third_party/nlohmann/LICENSE.MIT $jsonThirdParty
 
+      - name: Restore WiX tool
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          $env:DOTNET_ROLL_FORWARD = 'Major'
+          dotnet tool run wix -- eula accept wix7
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $match = Select-String -Path CMakeLists.txt -Pattern 'project\(ShadowDPI VERSION ([0-9.]+)'
+          if (-not $match) { throw 'Could not read ShadowDPI version from CMakeLists.txt' }
+          $version = $match.Matches[0].Groups[1].Value
+          $source = "shadowdpi_x64_${{ steps.vars.outputs.sha_short }}"
+          & .\packaging\wix\build.ps1 -SourceDir $source -Version $version -Output msi-out
+
+      - name: Validate and smoke-test MSI
+        shell: pwsh
+        run: |
+          $env:DOTNET_ROLL_FORWARD = 'Major'
+          $msi = (Resolve-Path .\msi-out\*.msi).Path
+          dotnet tool run wix -- msi validate $msi
+          if ($LASTEXITCODE -ne 0) { throw 'MSI ICE validation failed' }
+
+          $target = Join-Path $env:RUNNER_TEMP 'shadowdpi-msi-smoke'
+          $service = 'ShadowDpiCiSmoke'
+          if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+          $install = Start-Process msiexec.exe -ArgumentList @(
+            '/i', "`"$msi`"", '/qn', '/norestart',
+            "INSTALLFOLDER=`"$target`"",
+            "SERVICENAME=$service", 'SERVICESTARTMODE=disabled', 'STARTATSERVICE=0'
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install failed: $($install.ExitCode)" }
+
+          foreach ($name in @('shadowdpi.exe', 'shadowdpi-gui.exe', 'WinDivert.dll',
+                              'WinDivert64.sys', 'install.ps1')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $target $name))) {
+              throw "MSI did not install $name"
+            }
+          }
+          if (-not (Get-Service -Name $service -ErrorAction SilentlyContinue)) {
+            throw 'MSI did not register the service'
+          }
+
+          $remove = Start-Process msiexec.exe -ArgumentList @(
+            '/x', "`"$msi`"", '/qn', '/norestart'
+          ) -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "MSI uninstall failed: $($remove.ExitCode)" }
+          Start-Sleep -Seconds 3
+          if (Get-Service -Name $service -ErrorAction SilentlyContinue) {
+            throw 'MSI uninstall left the service behind'
+          }
+          if (Test-Path $target) { throw 'MSI uninstall left the install folder behind' }
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v7
+        with:
+          name: shadowdpi_msi_${{ steps.vars.outputs.sha_short }}
+          path: msi-out/*.msi
+
       - name: Upload output file x64
         uses: actions/upload-artifact@v7
         with:
@@ -188,6 +250,13 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v8
+        with:
+          pattern: shadowdpi_msi_*
+          path: msi
+          merge-multiple: true
+
       - name: Package archive
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -196,19 +265,23 @@ jobs:
           ( cd "shadowdpi-${version}-x64" && find . -type f -print0 | sort -z | xargs -0 sha256sum ) > "shadowdpi-${version}-x64.sha256"
           zip -qr "shadowdpi-${version}-x64.zip" "shadowdpi-${version}-x64"
           sha256sum "shadowdpi-${version}-x64.zip" >> "shadowdpi-${version}-x64.sha256"
+          cp msi/*.msi .
+          sha256sum shadowdpi-*-x64.msi >> "shadowdpi-${version}-x64.sha256"
           cat > release-body.md <<EOF
-          Windows x64. Unpack \`shadowdpi-${version}-x64.zip\` and run
-          \`install.ps1\` from an elevated PowerShell, or run
-          \`shadowdpi.exe\` directly to try it without installing.
+          Windows x64. Run \`shadowdpi-${version}-x64.msi\` for a guided setup,
+          or unpack \`shadowdpi-${version}-x64.zip\` and run \`install.ps1\` from
+          an elevated PowerShell. The MSI and the zip are both unsigned.
 
           ### Verify the download
 
           \`\`\`powershell
+          Get-FileHash .\shadowdpi-${version}-x64.msi -Algorithm SHA256
           Get-FileHash .\shadowdpi-${version}-x64.zip -Algorithm SHA256
+          gh attestation verify .\shadowdpi-${version}-x64.msi --repo ${{ github.repository }}
           gh attestation verify .\shadowdpi-${version}-x64.zip --repo ${{ github.repository }}
           \`\`\`
 
-          Compare the hash with the matching line in
+          Compare the hashes with the matching lines in
           \`shadowdpi-${version}-x64.sha256\`. The same file lists a hash for
           every file inside the archive.
 
@@ -216,8 +289,9 @@ jobs:
 
           - Full commit history for this tag: https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
           - ShadowDPI needs Administrator rights and loads the WinDivert kernel driver.
-          - The executable is not Authenticode-signed, so SmartScreen and some
-            antivirus engines may warn. Verify the hash or build from source.
+          - Neither the MSI nor the executables are Authenticode-signed, so
+            SmartScreen and some antivirus engines may warn. Verify the hash
+            or the GitHub attestation, or build from source.
           - Report vulnerabilities through [SECURITY.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/SECURITY.md), not a public issue.
           EOF
 
@@ -228,7 +302,9 @@ jobs:
         # the verification steps in SECURITY.md and the release body. Let this
         # step fail the job instead of publishing an unverifiable archive.
         with:
-          subject-path: shadowdpi-*-x64.zip
+          subject-path: |
+            shadowdpi-*-x64.zip
+            shadowdpi-*-x64.msi
 
       - name: Create GitHub release
         # Pinned to v3.0.4. This is the only third-party action in the workflow
@@ -240,4 +316,5 @@ jobs:
           body_path: release-body.md
           files: |
             shadowdpi-*.zip
+            shadowdpi-*.msi
             shadowdpi-*.sha256
