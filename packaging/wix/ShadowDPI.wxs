@@ -44,13 +44,19 @@
     </Property>
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
 
-    <!-- The PowerShell installer used a fixed ARP key with Publisher "amcique". -->
+    <!-- The PowerShell installer used a fixed ARP key with Publisher "amcique".
+         Check both registry views because a 32-bit PowerShell writes to Wow6432Node. -->
     <Property Id="LEGACY_PUBLISHER">
       <RegistrySearch Id="LegacyPublisherSearch" Root="HKLM"
                       Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ShadowDPI"
-                      Name="Publisher" Type="raw" />
+                      Name="Publisher" Type="raw" Bitness="always64" />
     </Property>
-    <Launch Condition="NOT (LEGACY_PUBLISHER = &quot;amcique&quot;)"
+    <Property Id="LEGACY_PUBLISHER_32">
+      <RegistrySearch Id="LegacyPublisherSearch32" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ShadowDPI"
+                      Name="Publisher" Type="raw" Bitness="always32" />
+    </Property>
+    <Launch Condition="NOT (LEGACY_PUBLISHER = &quot;amcique&quot;) AND NOT (LEGACY_PUBLISHER_32 = &quot;amcique&quot;)"
             Message="An older ShadowDPI install was found. Run install.ps1 -Action uninstall -Force before installing this MSI." />
 
     <StandardDirectory Id="ProgramFiles64Folder">
