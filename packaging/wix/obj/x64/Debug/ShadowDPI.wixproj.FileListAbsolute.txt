@@ -1,6 +1,0 @@
-C:\Users\nginx\source\repos\ShadowDPI\packaging\wix\obj\x64\Debug\ShadowDPI.wixproj.CoreCompileInputs.cache
-C:\Users\nginx\source\repos\ShadowDPI\packaging\wix\obj\x64\Debug\ShadowDPI.wixproj.BindTracking-neutral.txt
-C:\Users\nginx\source\repos\ShadowDPI\build\msi-out\shadowdpi-0.5.0-x64.msi
-C:\Users\nginx\source\repos\ShadowDPI\build\msi-out\shadowdpi-0.5.0-x64.wixpdb
-C:\Users\nginx\source\repos\ShadowDPI\packaging\wix\obj\x64\Debug\shadowdpi-0.5.0-x64.msi
-C:\Users\nginx\source\repos\ShadowDPI\packaging\wix\obj\x64\Debug\shadowdpi-0.5.0-x64.wixpdb

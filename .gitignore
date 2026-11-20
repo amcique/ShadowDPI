@@ -1,6 +1,10 @@
 # CMake build trees and IDE output
 /build/
 /out/
+packaging/wix/obj/
+packaging/wix/bin/
+*.msi
+*.wixpdb
 /.vs/
 CMakeUserPresets.json
 CMakeFiles/
