@@ -515,7 +515,7 @@ void test_dns_tracker()
 
     // A wrong question must not consume the entry either.
     auto wrong_question = response;
-    wrong_question[13] = std::byte{'E'};
+    wrong_question[13] = std::byte{'x'}; // 'e' -> 'x' survives case folding
     wrong_question[19] = std::byte{'z'};
     CHECK(!tracker.handle_incoming(local, 53000, wrong_question, false)
                .has_value());
@@ -526,6 +526,31 @@ void test_dns_tracker()
     CHECK(redirect->remote_ip[0] == resolver[0]);
     CHECK(redirect->remote_port == 53);
     CHECK(!tracker.handle_incoming(local, 53000, response, false).has_value());
+
+    // EDNS0 queries carry an OPT record in the additional section. ARCOUNT
+    // must not disqualify an otherwise valid query from being redirected.
+    auto edns0_query = make_dns_message(false, 0x4321);
+    edns0_query[10] = std::byte{0};
+    edns0_query[11] = std::byte{1}; // ARCOUNT
+    edns0_query.push_back(std::byte{0});             // OPT owner: root
+    edns0_query.push_back(std::byte{0x00});          // OPT type
+    edns0_query.push_back(std::byte{0x29});
+    edns0_query.push_back(std::byte{0x10});          // UDP payload size
+    edns0_query.push_back(std::byte{0x00});
+    for (int index = 0; index < 4; ++index) {
+        edns0_query.push_back(std::byte{0});         // TTL / flags
+    }
+    edns0_query.push_back(std::byte{0});             // RDLENGTH
+    edns0_query.push_back(std::byte{0});
+    CHECK(sdp::DnsTracker::is_dns_packet(edns0_query, true));
+    CHECK(tracker.handle_outgoing(
+        local, 53002, resolver, 53, edns0_query, false));
+    auto edns0_response = make_dns_message(true, 0x4321);
+    edns0_response[10] = std::byte{0};
+    edns0_response[11] = std::byte{1};
+    const auto edns0_redirect =
+        tracker.handle_incoming(local, 53002, edns0_response, false);
+    CHECK(edns0_redirect.has_value());
 
     // Non-DNS payloads must not be tracked.
     auto random = to_buffer(std::string(16, '\x42'));

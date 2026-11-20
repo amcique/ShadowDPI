@@ -11,9 +11,9 @@ interacts with. This document describes the boundary used by the tray GUI.
 | `shadowdpi-gui.exe` | asInvoker, user session | Tray status, preset selection, emergency stop, journal view; never loads WinDivert |
 | `install.ps1` | elevated | Copies files, registers the service, writes install metadata |
 
-The service already installs the WinDivert driver at runtime. A future MSI
-installs only the Win32 service; Windows Installer cannot declare a kernel
-driver service, so driver loading stays in the service.
+The service loads the WinDivert driver at runtime. The MSI installs only the
+Win32 service; Windows Installer cannot declare a kernel driver service, so
+driver loading stays in the service.
 
 ## IPC boundary
 

@@ -142,6 +142,15 @@ void finalize_config(Config& config)
         if (config.fake.min_ttl == 0) {
             config.fake.min_ttl = 3;
         }
+        if (config.fake.auto_ttl.second < config.fake.auto_ttl.first) {
+            throw CliError("--auto-ttl second value must not be less than first");
+        }
+        if (config.fake.auto_ttl.max < config.fake.auto_ttl.first) {
+            throw CliError("--auto-ttl max must be at least the first value");
+        }
+        if (config.fake.min_ttl > 255) {
+            throw CliError("--min-ttl must be at most 255");
+        }
     }
 
     if (config.dns.v4_server && config.dns.v4_port == 0) {

@@ -11,8 +11,8 @@ From an elevated PowerShell:
 .\install.ps1
 ```
 
-The menu offers install, upgrade, reconfigure, uninstall, and strategy
-scanning. The scan can also be started directly:
+The menu offers install, reinstall, upgrade, reconfigure, repair, uninstall,
+strategy scanning, and exit. The scan can also be started directly:
 
 ```powershell
 .\install.ps1 -Action scan -ScanLevel quick

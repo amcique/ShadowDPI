@@ -26,7 +26,7 @@ Describe 'install.ps1 pure functions' {
         foreach ($level in 'quick', 'standard', 'full') {
             $strategies = @(Get-Strategies -Level $level -DnsArgs @() -FakeSniHosts @())
             $strategies.Count | Should -BeGreaterThan 0
-            ($strategies | Where-Object { $_.Name -eq 'preset 9' }).Count | Should -Be 1
+            @($strategies | Where-Object { $_.Name -eq 'preset 9' }).Count | Should -Be 1
         }
     }
 
@@ -45,6 +45,16 @@ Describe 'install.ps1 pure functions' {
 
     It 'rejects protected install paths' {
         { Assert-SafeInstallPath -Path $env:SystemRoot } | Should -Throw
+    }
+
+    It 'rejects unsafe release manifest entries' {
+        Test-ReleaseEntryPath -Entry 'docs/install.md' | Should -BeTrue
+        Test-ReleaseEntryPath -Entry 'tools' | Should -BeTrue
+        Test-ReleaseEntryPath -Entry '..\outside.txt' | Should -BeFalse
+        Test-ReleaseEntryPath -Entry 'docs\..\outside.txt' | Should -BeFalse
+        Test-ReleaseEntryPath -Entry 'C:\Windows\evil.txt' | Should -BeFalse
+        Test-ReleaseEntryPath -Entry '\\server\share\evil.txt' | Should -BeFalse
+        Test-ReleaseEntryPath -Entry 'docs\invalid:name.txt' | Should -BeFalse
     }
 
     It 'removes stale payload files from the install tree' {
@@ -93,6 +103,13 @@ Describe 'install.ps1 pure functions' {
 
             Set-Content -LiteralPath $dll -Value 'tampered'
             Test-FileHashMatch -Path $dll -HashFile $manifest -LeafName 'WinDivert.dll' | Should -BeFalse
+
+            # A manifest that exists but omits the file must fail closed.
+            Set-Content -LiteralPath $manifest -Value "$hash  ./other.dll"
+            Test-FileHashMatch -Path $dll -HashFile $manifest -LeafName 'WinDivert.dll' | Should -BeFalse
+
+            # No manifest at all is the documented source-build case: skip with
+            # a warning rather than failing.
             Test-FileHashMatch -Path $dll -HashFile '' -LeafName 'WinDivert.dll' | Should -BeTrue
         }
         finally {

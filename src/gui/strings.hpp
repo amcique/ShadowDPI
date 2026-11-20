@@ -46,6 +46,7 @@ struct Strings {
     std::string_view scan_elevation;
     std::string_view scan_script_invalid;
     std::string_view scan_in_progress;
+    std::string_view scan_invalid_timeout;
     std::string_view blacklist_title;
     std::string_view blacklist_hint;
     std::string_view save;

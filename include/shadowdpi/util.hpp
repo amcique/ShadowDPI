@@ -26,7 +26,7 @@ void write_be16(std::byte* data, std::uint16_t value) noexcept;
 [[nodiscard]] std::optional<IpAddress> parse_ip_address(std::string_view text);
 [[nodiscard]] std::string to_string(const IpAddress& address);
 
-/// Parses a sequence of hexadecimal octets (for example "16 03 01" without spaces).
+/// Parses a sequence of hexadecimal octets (for example "160301", with no spaces).
 /// Returns std::nullopt for empty, odd-length, or otherwise invalid input.
 [[nodiscard]] std::optional<std::vector<std::byte>> parse_hex_payload(std::string_view text);
 

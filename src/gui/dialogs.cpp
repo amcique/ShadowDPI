@@ -466,17 +466,30 @@ LRESULT CALLBACK scan_proc(HWND window,
                                                                     : "4");
                 options.timeout_sec = 5;
                 try {
-                    options.timeout_sec =
-                        std::stoi(narrow_text(window_text(window,
-                                                          kScanTimeout)));
+                    const auto entered = std::stoi(narrow_text(
+                        window_text(window, kScanTimeout)));
+                    if (entered >= 1 && entered <= 3600) {
+                        options.timeout_sec = entered;
+                    }
+                    else {
+                        show_message(window,
+                                     widen(strings.scan_invalid_timeout),
+                                     MB_OK | MB_ICONWARNING);
+                        return 0;
+                    }
                 }
                 catch (...) {
+                    show_message(window,
+                                 widen(strings.scan_invalid_timeout),
+                                 MB_OK | MB_ICONWARNING);
+                    return 0;
                 }
                 options.dns_addr = narrow_text(window_text(window, kScanDns));
 
                 g_scan.json_path = temporary_path(L"-scan.json");
                 g_scan.progress_path = temporary_path(L"-progress.jsonl");
                 g_scan.collector = ProgressCollector{};
+                g_scan.summary = ScanSummary{};
                 EnableWindow(GetDlgItem(window, kScanApply), FALSE);
                 SetWindowTextW(GetDlgItem(window, kScanResult), L"");
                 SendMessageW(GetDlgItem(window, kScanProgress), LB_RESETCONTENT,

@@ -1,3 +1,5 @@
+#include <cstdio>
+
 #include "application.hpp"
 #include "lifecycle.hpp"
 #include "service.hpp"
@@ -7,23 +9,27 @@ namespace {
 
 // SetDefaultDllDirectories is missing on Windows 7 without KB2533623, so it is
 // resolved at run time. On those systems SetDllDirectoryA("") still applies.
-void restrict_dll_search_path() noexcept
+[[nodiscard]] bool restrict_dll_search_path() noexcept
 {
     using SetDefaultDllDirectoriesFn = BOOL(WINAPI*)(DWORD);
 
+    bool hardened = false;
     HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
     if (kernel32 != nullptr) {
         const auto set_default = reinterpret_cast<SetDefaultDllDirectoriesFn>(
             GetProcAddress(kernel32, "SetDefaultDllDirectories"));
         if (set_default != nullptr) {
-            set_default(LOAD_LIBRARY_SEARCH_SYSTEM32 |
-                        LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+            hardened = set_default(LOAD_LIBRARY_SEARCH_SYSTEM32 |
+                                   LOAD_LIBRARY_SEARCH_APPLICATION_DIR) != FALSE;
         }
     }
 
-    SetDllDirectoryA("");
+    if (SetDllDirectoryA("") != FALSE) {
+        hardened = true;
+    }
     SetSearchPathMode(BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE |
                       BASE_SEARCH_PATH_PERMANENT);
+    return hardened;
 }
 
 } // namespace
@@ -31,7 +37,10 @@ void restrict_dll_search_path() noexcept
 int main(int argc, char* argv[])
 {
     // Only load DLLs from safe locations, never from the current directory.
-    restrict_dll_search_path();
+    if (!restrict_dll_search_path()) {
+        std::fputs("ShadowDPI: cannot harden the DLL search path.\n", stderr);
+        return 1;
+    }
 
     // Reset before the service dispatcher starts, so an early IPC stop request
     // is not cleared after the service has begun starting.

@@ -46,8 +46,11 @@ jobs:
       - name: Download WinDivert
         if: steps.windivert-cache.outputs.cache-hit != 'true'
         shell: pwsh
+        run: Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
+
+      - name: Verify WinDivert archive
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
           $hash = (Get-FileHash $env:WINDIVERT_NAME -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne $env:WINDIVERT_SHA256) {
             throw "WinDivert checksum mismatch: $hash"

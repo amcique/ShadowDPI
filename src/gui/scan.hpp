@@ -62,6 +62,7 @@ public:
 
 private:
     std::size_t seen_lines_{0};
+    std::size_t pending_attempts_{0};
 };
 
 } // namespace sdp::gui

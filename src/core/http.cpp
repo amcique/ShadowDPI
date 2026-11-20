@@ -17,8 +17,9 @@ constexpr std::string_view kHostReplacement = "\r\nhoSt: ";
 constexpr std::string_view kLocationHttp = "\r\nLocation: http://";
 constexpr std::string_view kConnectionClose = "\r\nConnection: close";
 
-constexpr std::array<std::string_view, 7> kHttpMethods = {
+constexpr std::array<std::string_view, 9> kHttpMethods = {
     "GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ",
+    "PATCH ", "TRACE ",
 };
 
 [[nodiscard]] unsigned char fold_ascii(unsigned char value) noexcept

@@ -135,6 +135,12 @@ std::span<const std::byte> default_https_fake() noexcept
 
 std::vector<std::byte> make_fake_client_hello(std::string_view domain)
 {
+    // A DNS name is at most 253 bytes. Larger input would overflow the 16-bit
+    // length fields below and produce a malformed ClientHello.
+    if (domain.empty() || domain.size() > 253) {
+        return {};
+    }
+
     constexpr std::size_t sni_header_size = 9;
     const std::size_t part0_size = kClientHelloPart0.size();
     const std::size_t part1_size = kClientHelloPart1.size();

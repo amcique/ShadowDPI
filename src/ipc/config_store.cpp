@@ -176,19 +176,30 @@ bool save_config(const std::filesystem::path& path,
 
         const std::filesystem::path temporary =
             path.string() + ".tmp";
+        // CREATE_NEW refuses an existing file or symlink at the temp path.
+        // FILE_FLAG_OPEN_REPARSE_POINT avoids following one planted earlier.
+        HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0,
+                                    nullptr, CREATE_NEW,
+                                    FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            error = "cannot create config file: " + temporary.string();
+            return false;
+        }
         {
-            std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-            if (!file) {
-                error = "cannot create config file: " + temporary.string();
-                return false;
-            }
-            file << kPrefix << flat << kSuffix;
-            file.flush();
-            if (!file) {
+            const std::string contents =
+                std::string{kPrefix} + flat + std::string{kSuffix};
+            DWORD written = 0;
+            if (!WriteFile(handle, contents.data(),
+                           static_cast<DWORD>(contents.size()), &written,
+                           nullptr) ||
+                written != contents.size()) {
+                CloseHandle(handle);
+                std::filesystem::remove(temporary);
                 error = "cannot write config file: " + temporary.string();
                 return false;
             }
         }
+        CloseHandle(handle);
         std::filesystem::rename(temporary, path);
         return true;
     }

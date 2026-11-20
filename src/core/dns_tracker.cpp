@@ -156,9 +156,13 @@ bool DnsTracker::is_dns_packet(std::span<const std::byte> payload,
 
     const std::uint16_t flags = read_be16(payload.data() + 2);
     if (outgoing) {
+        // ANCOUNT and NSCOUNT must be zero for a query. ARCOUNT is ignored:
+        // EDNS0 queries carry an OPT pseudo-record there and still need
+        // redirect tracking.
         return (flags & 0xFA00) == 0 &&
                read_be16(payload.data() + 4) != 0 &&
-               read_be32(payload.data() + 6) == 0;
+               read_be16(payload.data() + 6) == 0 &&
+               read_be16(payload.data() + 8) == 0;
     }
     return (flags & 0xF800) == 0x8000;
 }

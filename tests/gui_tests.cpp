@@ -155,6 +155,19 @@ int main()
     CHECK(command.find(L"'abc123'") != std::wstring::npos);
     CHECK(command.find(L"[ScriptBlock]::Create($t)") != std::wstring::npos);
 
+    // A value that begins with '-' must stay quoted data. A switch-looking
+    // value must never become a bare token in the elevated command.
+    const auto hostile = sdp::gui::build_elevated_command(
+        L"abc123", L"C:\\Tools\\ShadowDPI\\install.ps1",
+        {L"-Action", L"scan", L"-Silent", L"-UrlFile",
+         L"-x;Start-Process calc.exe;", L"-DnsAddr", L"-9"});
+    CHECK(hostile.find(L"-UrlFile '-x;Start-Process calc.exe;'") !=
+          std::wstring::npos);
+    CHECK(hostile.find(L"-DnsAddr '-9'") != std::wstring::npos);
+    CHECK(hostile.find(L" -x;") == std::wstring::npos);
+    CHECK(hostile.find(L" -9") == std::wstring::npos);
+    CHECK(hostile.find(L"'-Silent'") == std::wstring::npos);
+
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

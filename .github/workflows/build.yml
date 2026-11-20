@@ -18,6 +18,7 @@ on:
       - 'install.ps1'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
+      - 'release-files.txt'
       - 'NOTICE'
       - 'LICENSE'
       - 'README.md'
@@ -40,6 +41,10 @@ on:
       - 'install.ps1'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
+      - 'release-files.txt'
+      - 'NOTICE'
+      - 'LICENSE'
+      - 'SECURITY.md'
       - 'README.md'
       - 'README.ru.md'
       - 'README.tr.md'
@@ -70,6 +75,8 @@ jobs:
     name: MSVC x64
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,6 +86,35 @@ jobs:
         id: vars
         shell: bash
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release version
+        id: version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path CMakeLists.txt -Pattern 'project\(ShadowDPI VERSION ([0-9.]+)'
+          if (-not $match) { throw 'Could not read ShadowDPI version from CMakeLists.txt' }
+          $cmakeVersion = $match.Matches[0].Groups[1].Value
+
+          $header = Get-Content include/shadowdpi/version.hpp -Raw
+          if ($header -notmatch 'kVersion\[\]\s*=\s*"([0-9.]+)"') {
+            throw 'Could not read version from include/shadowdpi/version.hpp'
+          }
+          $headerVersion = $Matches[1]
+
+          $scoopVersion = (Get-Content packaging/scoop/shadowdpi.json -Raw | ConvertFrom-Json).version
+          if ($cmakeVersion -ne $headerVersion -or $cmakeVersion -ne $scoopVersion) {
+            throw "Version mismatch: CMake=$cmakeVersion header=$headerVersion scoop=$scoopVersion"
+          }
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ($tagVersion -ne $cmakeVersion) {
+              throw "Tag $env:GITHUB_REF_NAME does not match source version $cmakeVersion"
+            }
+          }
+
+          "version=$cmakeVersion" >> $env:GITHUB_OUTPUT
+          Write-Output "Release version: $cmakeVersion"
 
       - name: Restore WinDivert archive
         id: windivert-cache
@@ -90,8 +126,13 @@ jobs:
       - name: Download WinDivert
         if: steps.windivert-cache.outputs.cache-hit != 'true'
         shell: pwsh
+        run: Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
+
+      # Runs on cache hits too. A poisoned cache must not ship unverified
+      # kernel-mode binaries with an otherwise valid build attestation.
+      - name: Verify WinDivert archive
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri $env:WINDIVERT_URL -OutFile $env:WINDIVERT_NAME
           $hash = (Get-FileHash $env:WINDIVERT_NAME -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne $env:WINDIVERT_SHA256) {
             throw "WinDivert checksum mismatch: $hash"
@@ -125,7 +166,7 @@ jobs:
         shell: pwsh
         run: |
           $null = [scriptblock]::Create((Get-Content install.ps1 -Raw))
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -RequiredVersion 5.7.1
+          Install-Module Pester -Scope CurrentUser -Force -RequiredVersion 5.7.1
           Import-Module Pester -RequiredVersion 5.7.1
           $result = Invoke-Pester -Path tests/installer -Output Detailed -PassThru
           if ($result.FailedCount -gt 0) {
@@ -135,7 +176,14 @@ jobs:
       - name: Validate packaging manifests
         shell: pwsh
         run: |
-          $null = Get-Content packaging/scoop/shadowdpi.json -Raw | ConvertFrom-Json
+          $manifest = Get-Content packaging/scoop/shadowdpi.json -Raw | ConvertFrom-Json
+          if ($manifest.version -ne '${{ steps.version.outputs.version }}') {
+            throw "Scoop version $($manifest.version) does not match the source version"
+          }
+          $hash = $manifest.architecture.'64bit'.hash
+          if ($hash -notmatch '^[0-9a-f]{64}$') {
+            throw "Scoop hash is not a SHA-256 digest: $hash"
+          }
 
       # CTest hides output of passing tests; run the benchmark once more so the
       # timings are visible in the build log.
@@ -175,11 +223,8 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
-          $match = Select-String -Path CMakeLists.txt -Pattern 'project\(ShadowDPI VERSION ([0-9.]+)'
-          if (-not $match) { throw 'Could not read ShadowDPI version from CMakeLists.txt' }
-          $version = $match.Matches[0].Groups[1].Value
           $source = "shadowdpi_x64_${{ steps.vars.outputs.sha_short }}"
-          & .\packaging\wix\build.ps1 -SourceDir $source -Version $version -Output msi-out
+          & .\packaging\wix\build.ps1 -SourceDir $source -Version '${{ steps.version.outputs.version }}' -Output msi-out
 
       - name: Validate and smoke-test MSI
         shell: pwsh
@@ -237,6 +282,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.msvc-x64.outputs.version }}
     permissions:
       contents: write
       actions: read
@@ -259,7 +306,7 @@ jobs:
 
       - name: Package archive
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$VERSION"
           mkdir -p "shadowdpi-${version}-x64"
           cp -R release/. "shadowdpi-${version}-x64/"
           ( cd "shadowdpi-${version}-x64" && find . -type f -print0 | sort -z | xargs -0 sha256sum ) > "shadowdpi-${version}-x64.sha256"
@@ -307,10 +354,9 @@ jobs:
             shadowdpi-*-x64.msi
 
       - name: Create GitHub release
-        # Pinned to v3.0.4. This is the only third-party action in the workflow
-        # that holds a write token, and the release body is written in full
-        # below, so generated notes are not added.
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3
+        # This is the only third-party action holding a write token, and the
+        # release body is written in full below, so generated notes are not added.
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           name: ShadowDPI ${{ github.ref_name }}
           body_path: release-body.md

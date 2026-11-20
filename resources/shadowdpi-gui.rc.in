@@ -1,4 +1,5 @@
 1 24 "@SHADOWDPI_GUI_MANIFEST_RESOURCE@"
+// @SHADOWDPI_ICON_HASH@ forces regeneration when the icon content changes.
 1 ICON "@SHADOWDPI_GUI_ICON_RESOURCE@"
 
 1 VERSIONINFO

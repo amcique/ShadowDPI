@@ -44,6 +44,7 @@ const Strings& english()
         "The scanner needs Administrator rights. Approve the elevation prompt.",
         "The installer script was modified. Reinstall ShadowDPI before scanning.",
         "Wait for the current scan to finish.",
+        "Enter a timeout between 1 and 3600 seconds.",
         "Blacklist",
         "One domain per line. Changes apply after a service restart.",
         "Save",

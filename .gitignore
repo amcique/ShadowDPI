@@ -1,6 +1,8 @@
 # CMake build trees and IDE output
 /build/
 /out/
+WinDivert-2.2.0-D/
+WinDivert-2.2.0-D.zip
 packaging/wix/obj/
 packaging/wix/bin/
 *.msi

@@ -1,5 +1,7 @@
 #include "scan_command.hpp"
 
+#include <algorithm>
+
 namespace sdp::gui {
 namespace {
 
@@ -16,6 +18,24 @@ namespace {
     }
     result += L'\'';
     return result;
+}
+
+[[nodiscard]] bool is_switch(std::wstring_view token)
+{
+    return token == L"-Silent";
+}
+
+[[nodiscard]] bool is_parameter(std::wstring_view token)
+{
+    // Only names emitted by build_scan_arguments are allowed through bare.
+    // Everything else, including values that happen to begin with '-', is
+    // quoted so PowerShell cannot parse it as a switch or as new statements.
+    static constexpr std::wstring_view kParameters[] = {
+        L"-Action",        L"-ScanLevel",  L"-Protocols", L"-IpVersion",
+        L"-TimeoutSec",    L"-Json",       L"-ProgressFile", L"-UrlFile",
+        L"-Urls",          L"-DnsAddr",    L"-DnsPort",   L"-DnsResolver"};
+    return std::find(std::begin(kParameters), std::end(kParameters), token) !=
+           std::end(kParameters);
 }
 
 } // namespace
@@ -37,11 +57,15 @@ std::wstring build_elevated_command(std::wstring_view expected_hash,
         L"$s=[ScriptBlock]::Create($t);& $s";
 
     for (std::size_t index = 0; index < arguments.size(); ++index) {
-        const auto& argument = arguments[index];
-        if (!argument.empty() && argument[0] == L'-') {
-            command += L" " + argument;
-            if (argument == L"-Urls" && index + 1 < arguments.size()) {
-                const auto& value = arguments[++index];
+        const auto& token = arguments[index];
+        if (is_switch(token)) {
+            command += L" " + token;
+            continue;
+        }
+        if (is_parameter(token) && index + 1 < arguments.size()) {
+            command += L" " + token;
+            const auto& value = arguments[++index];
+            if (token == L"-Urls") {
                 std::wstring array;
                 std::size_t start = 0;
                 while (start < value.size()) {
@@ -60,9 +84,12 @@ std::wstring build_elevated_command(std::wstring_view expected_hash,
                 }
                 command += L" " + array;
             }
+            else {
+                command += L" " + quote(value);
+            }
             continue;
         }
-        command += L" " + quote(argument);
+        command += L" " + quote(token);
     }
     return command;
 }

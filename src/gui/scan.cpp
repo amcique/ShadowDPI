@@ -124,10 +124,16 @@ std::vector<ProgressEntry> ProgressCollector::consume(std::string_view text)
         }
         const auto entry = parse_progress_line(line);
         if (!entry) {
-            // A line may be only partially written. Retry it next pass and
-            // keep later lines pending so entries stay ordered and unique.
-            break;
+            // A line may be only partially written. Retry for a bounded number
+            // of timer passes so one permanently bad line cannot hide the rest.
+            if (++pending_attempts_ <= 10) {
+                break;
+            }
+            ++seen_lines_;
+            pending_attempts_ = 0;
+            continue;
         }
+        pending_attempts_ = 0;
         result.push_back(*entry);
         ++seen_lines_;
     }

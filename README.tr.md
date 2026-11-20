@@ -153,9 +153,9 @@ ile 1,547 arasındaydı; yani bu makinede yüzde onlarca fark normaldir. HTTP, H
 ve keep-alive için A/B medyanlarının tamamı bu aralığa düşer; eşleştirilmiş CPU
 oranları (0,0023, 0,0011, 0,0911) ise bu aralığa girmez.
 
-![CPU cycles by workload](docs/performance/cpu-cycles.svg)
-
 ### Tüm on iki iş yükünde CPU maliyeti
+
+![CPU cycles by workload](docs/performance/cpu-cycles.svg)
 
 Toplu HTTPS aktarımları 500-810 kat daha az CPU kullanır. Diğer iş yükleri
 2-75 kat fark gösterir; yukarıdaki 67,8× değeri bayt ağırlıklı temkinli toplamdır.
@@ -276,7 +276,7 @@ bildirin.
   kullanılır; sürüm paketi uyumlu WinDivert DLL ve sürücüsünü içerir.
   `install.ps1` çalıştırmak zorunlu değildir, yalnızca dosyaları kopyalar ve
   hizmeti kaydeder.
-- **PowerShell 5.1** `install.ps1` için gereklidir. Strateji tarayıcısı ayrıca
+- **Windows PowerShell 5.1 veya PowerShell 7** `install.ps1` için gereklidir. Strateji tarayıcısı ayrıca
   `curl.exe` ister. İkisi de Windows 10 ve sonrasında gelir.
 
 ## Kaynaktan derleme (MSVC x64)
@@ -415,22 +415,23 @@ URL listenizle tarayıcıyı çalıştırın ve çıktısıyla bir issue açın.
 
 ## İndirmeyi doğrulama
 
-Her sürüm `shadowdpi-<sürüm>-x64.zip` dosyasını ve eşleşen `.sha256` dosyasını
-yayımlar:
+Her sürüm bir MSI, bir zip ve eşleşen `.sha256` dosyasını yayımlar:
 
 ```powershell
+Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
 Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256 | Select-String 'shadowdpi-0.5.0-x64.zip'
+Get-Content .\shadowdpi-0.5.0-x64.sha256
 ```
 
-Arşiv ayrıca GitHub derleme kaynağı kanıtı ile imzalanır; bu kayıt arşivi hangi
-iş akışının, hangi commit'in ve hangi çalıştırıcının ürettiğini gösterir:
+Her iki dosya da GitHub derleme kaynağı kanıtı ile imzalanır; bu kayıt dosyaları
+hangi iş akışının, hangi commit'in ve hangi çalıştırıcının ürettiğini gösterir:
 
 ```powershell
+gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
 gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
 ```
 
-İki denetimden biri başarısız olursa ikiliyi çalıştırmayın.
+Bir denetim başarısız olursa kurulumu veya ikiliyi çalıştırmayın.
 
 Çalıştırılabilir dosya Authenticode ile imzalanmadığı için Windows "Windows
 protected your PC" uyarısı gösterebilir ve bazı antivirüsler uyarabilir: çekirdek

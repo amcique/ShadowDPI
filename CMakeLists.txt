@@ -325,6 +325,34 @@ if(WINDIVERT_SYS)
     install(FILES "${WINDIVERT_SYS}" DESTINATION .)
 endif()
 
+# Ship the same payload as the release archive. Without this, cmake --install
+# produces executables but no installer script, documentation or tools.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/release-files.txt" SHADOWDPI_RELEASE_ENTRIES)
+foreach(entry IN LISTS SHADOWDPI_RELEASE_ENTRIES)
+    string(STRIP "${entry}" entry)
+    if(entry STREQUAL "" OR entry MATCHES "^#")
+        continue()
+    endif()
+    string(REGEX REPLACE "/$" "" entry "${entry}")
+    if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${entry}")
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${entry}/"
+                DESTINATION "${entry}")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${entry}")
+        get_filename_component(directory "${entry}" DIRECTORY)
+        if(directory STREQUAL "")
+            set(directory ".")
+        endif()
+        install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/${entry}"
+                DESTINATION "${directory}")
+    endif()
+endforeach()
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/WinDivert/LICENSE"
+              "${CMAKE_CURRENT_SOURCE_DIR}/third_party/WinDivert/README.md"
+        DESTINATION third_party/WinDivert)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann/LICENSE.MIT"
+        DESTINATION third_party/nlohmann)
+
 # Packet tooling (differential tests and the parser benchmark) links
 # packet.cpp and needs WinDivert's user-mode helper DLL next to the
 # executable. Neither needs the driver or administrator privileges.

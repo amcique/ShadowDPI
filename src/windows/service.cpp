@@ -205,22 +205,30 @@ void report_status() noexcept
                     std::to_integer<unsigned char>(byte)));
             }
             const auto target = sdp::ipc::default_blacklist_path();
-            const auto temporary = target.string() + ".tmp";
+            auto temporary = target;
+            temporary += ".tmp";
             std::size_t entry_count = 0;
             const std::string error = [&]() -> std::string {
                 try {
                     std::filesystem::create_directories(target.parent_path());
                     {
-                        std::ofstream file(temporary,
-                                           std::ios::binary |
-                                               std::ios::trunc);
-                        if (!file) {
+                        // CREATE_NEW plus OPEN_REPARSE_POINT refuses a planted
+                        // symlink at the temporary path.
+                        HANDLE handle = CreateFileW(
+                            temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                            CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                        if (handle == INVALID_HANDLE_VALUE) {
                             return "cannot create blacklist file";
                         }
-                        file.write(text.data(),
-                                   static_cast<std::streamsize>(text.size()));
-                        file.flush();
-                        if (!file) {
+                        DWORD written = 0;
+                        const bool ok = WriteFile(handle, text.data(),
+                                                  static_cast<DWORD>(
+                                                      text.size()),
+                                                  &written, nullptr) != FALSE &&
+                                        written == text.size();
+                        CloseHandle(handle);
+                        if (!ok) {
+                            std::filesystem::remove(temporary);
                             return "cannot write blacklist file";
                         }
                     }
@@ -293,7 +301,13 @@ void WINAPI service_control(DWORD control)
             if (!g_service_exiting.load(std::memory_order_acquire)) {
                 g_watchdog_stop.store(false, std::memory_order_release);
                 if (!g_watchdog.joinable()) {
-                    g_watchdog = std::thread{run_stop_watchdog};
+                    try {
+                        g_watchdog = std::thread{run_stop_watchdog};
+                    }
+                    catch (const std::exception&) {
+                        // A Win32 callback must not let an exception escape.
+                        // The stop request still proceeds without the watchdog.
+                    }
                 }
             }
         }

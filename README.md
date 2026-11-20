@@ -269,7 +269,7 @@ open a public issue.
   the release includes the matching WinDivert DLL and driver. Running
   Running `install.ps1` is optional; the script only copies those files and
   registers the service.
-- **PowerShell 5.1** is needed for `install.ps1`. The strategy scanner also
+- **Windows PowerShell 5.1 or PowerShell 7** is needed for `install.ps1`. The strategy scanner also
   needs `curl.exe`. Both ship with Windows 10 and later.
 
 ## Build from source (MSVC x64)
@@ -405,22 +405,24 @@ run the scanner against your own URL list and open an issue with its output.
 
 ## Verifying your download
 
-Every release publishes `shadowdpi-<version>-x64.zip` and a matching `.sha256`
-file:
+Every release publishes an MSI, a zip, and a matching `.sha256` file:
 
 ```powershell
+Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
 Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256 | Select-String 'shadowdpi-0.5.0-x64.zip'
+Get-Content .\shadowdpi-0.5.0-x64.sha256
 ```
 
-The zip is also covered by a GitHub build-provenance attestation, which records
-the workflow, commit, and runner that produced the archive:
+Both files are covered by a GitHub build-provenance attestation, which records
+the workflow, commit, and runner that produced them:
 
 ```powershell
+gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
 gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
 ```
 
-If either check fails, do not run the binary.
+If a check fails, do not run the installer or the binary. Neither file is
+Authenticode-signed, so Windows may show a publisher warning.
 
 ## Intended use
 

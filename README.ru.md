@@ -153,9 +153,9 @@ ShadowDPI не подходят вашему провайдеру, попроб�
 нормальна. Медианы A/B для HTTP, HTTPS и keep-alive попадают в этот диапазон, а
 парные отношения CPU (0,0023, 0,0011, 0,0911) в него не попадают.
 
-![CPU cycles by workload](docs/performance/cpu-cycles.svg)
-
 ### Нагрузка на CPU во всех двенадцати сценариях
+
+![CPU cycles by workload](docs/performance/cpu-cycles.svg)
 
 Массовая передача по HTTPS показывает от 500 до 810 раз меньше CPU. Остальные
 сценарии дают от 2 до 75 раз; приведённое выше значение 67,8× является
@@ -272,7 +272,7 @@ ShadowDPI требует права администратора, поэтому
   времени выполнения MSVC; релиз содержит подходящие DLL и драйвер WinDivert.
   Запускать `install.ps1` необязательно: скрипт только копирует файлы и
   регистрирует службу.
-- **PowerShell 5.1** нужен для `install.ps1`, сканеру также нужен `curl.exe`.
+- **Windows PowerShell 5.1 или PowerShell 7** нужны для `install.ps1`, сканеру также нужен `curl.exe`.
   Оба входят в Windows 10 и новее.
 
 ## Сборка из исходников (MSVC x64)
@@ -412,21 +412,23 @@ TTL и поля порядкового номера или контрольно�
 
 ## Проверка загрузки
 
-Каждый релиз публикует `shadowdpi-<версия>-x64.zip` и файл `.sha256` к нему:
+Каждый релиз публикует MSI, zip и файл `.sha256` к ним:
 
 ```powershell
+Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
 Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256 | Select-String 'shadowdpi-0.5.0-x64.zip'
+Get-Content .\shadowdpi-0.5.0-x64.sha256
 ```
 
-Кроме того, zip покрыт аттестацией происхождения сборки GitHub, которая
-фиксирует workflow, коммит и runner, создавшие файл:
+Оба файла покрыты аттестацией происхождения сборки GitHub, которая фиксирует
+workflow, коммит и runner, создавшие их:
 
 ```powershell
+gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
 gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
 ```
 
-Если проверка не проходит, не запускайте бинарник.
+Если проверка не проходит, не запускайте установщик или бинарник.
 
 Исполняемый файл не подписан сертификатом Authenticode, поэтому Windows может
 показывать «Windows protected your PC», а антивирусы могут предупреждать: это

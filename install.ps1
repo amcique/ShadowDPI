@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
 Installs, upgrades, reconfigures, removes, and scans ShadowDPI.
@@ -673,7 +673,7 @@ function Get-VersionNumber {
     if ($match.Success) {
         return $match.Groups[1].Value
     }
-    return ''
+    return '0.0'
 }
 
 function Assert-ServiceName {
@@ -1076,7 +1076,7 @@ function Test-ServiceOwnership {
         return $true
     }
     if (-not $service.PathName) {
-        return $true
+        return $false
     }
 
     $launch = Get-ServiceLaunch -PathName $service.PathName
@@ -1085,7 +1085,8 @@ function Test-ServiceOwnership {
     }
 
     try {
-        return (Test-SamePath -First (Split-Path -Parent $launch.ExePath) -Second (Split-Path -Parent $ExePath))
+        # Require the exact executable, not merely the same folder.
+        return (Test-SamePath -First $launch.ExePath -Second $ExePath)
     }
     catch {
         return $false
@@ -1351,8 +1352,12 @@ function Get-SourceInfo {
     if (-not $HashFile) {
         $HashFile = Find-ReleaseHashFile -SourcePath $base
     }
-    foreach ($name in 'WinDivert.dll', 'WinDivert64.sys') {
+    foreach ($name in 'shadowdpi.exe', 'shadowdpi-gui.exe', 'WinDivert.dll',
+                     'WinDivert64.sys', 'install.ps1', 'release-files.txt') {
         $candidate = Join-Path $base $name
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
         if (-not (Test-FileHashMatch -Path $candidate -HashFile $HashFile -LeafName $name)) {
             throw "The hash of $name does not match the release manifest. Unpack the release archive again."
         }
@@ -1396,6 +1401,7 @@ function Test-FileHashMatch {
     )
 
     if (-not $HashFile -or -not (Test-Path -LiteralPath $HashFile -PathType Leaf)) {
+        Write-Warn "No release hash manifest found; skipping verification of $LeafName."
         return $true
     }
 
@@ -1412,7 +1418,10 @@ function Test-FileHashMatch {
         }
     }
     if (-not $found) {
-        Write-Warn "No hash for $LeafName in $HashFile; skipping that check."
+        # A manifest that omits a payload file must not silently pass: an
+        # attacker can delete one line to bypass verification.
+        Write-Warn "No hash for $LeafName in $HashFile; refusing to install."
+        return $false
     }
     return $true
 }
@@ -1426,6 +1435,29 @@ function Test-SamePath {
     $a = Get-CanonicalPath -Path $First
     $b = Get-CanonicalPath -Path $Second
     return $a.Equals($b, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-ReleaseEntryPath {
+    param([string]$Entry)
+
+    $text = ([string]$Entry).Trim()
+    if (-not $text -or [IO.Path]::IsPathRooted($text) -or $text.Contains(':')) {
+        return $false
+    }
+    $normalized = $text.Replace('/', '\')
+    $parts = @($normalized -split '\\' | Where-Object { $_ })
+    if ($parts.Count -eq 0) {
+        return $false
+    }
+    foreach ($part in $parts) {
+        if ($part -eq '..' -or $part -eq '.') {
+            return $false
+        }
+        if ($part.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Copy-InstallPayload {
@@ -1453,7 +1485,13 @@ function Copy-InstallPayload {
     $entries = @(Get-Content -LiteralPath $manifestPath -ErrorAction Stop |
         Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
         ForEach-Object { $_.Trim() })
+    foreach ($entry in $entries) {
+        if (-not (Test-ReleaseEntryPath -Entry $entry)) {
+            throw "Unsafe entry in release-files.txt: $entry"
+        }
+    }
 
+    $canonicalDestinationRoot = Get-CanonicalPath -Path $DestinationPath
     $files = @('shadowdpi.exe', 'shadowdpi-gui.exe', 'WinDivert.dll', 'WinDivert64.sys')
     $directories = @()
     foreach ($entry in $entries) {
@@ -1478,6 +1516,10 @@ function Copy-InstallPayload {
         }
 
         $destination = Join-Path $DestinationPath $name
+        $destinationParent = Split-Path -Parent $destination
+        if (-not (Test-PathWithin -Path (Get-CanonicalPath -Path $destinationParent) -Root $canonicalDestinationRoot)) {
+            throw "Unsafe destination for release entry: $name"
+        }
         if ((Test-SamePath -First $source -Second $destination)) {
             $payload += $name
             continue
@@ -1503,6 +1545,9 @@ function Copy-InstallPayload {
         }
 
         $destinationDir = Join-Path $DestinationPath $name
+        if (-not (Test-PathWithin -Path (Get-CanonicalPath -Path $destinationDir) -Root $canonicalDestinationRoot)) {
+            throw "Unsafe destination for release entry: $name"
+        }
         if ((Test-SamePath -First $sourceDir -Second $destinationDir)) {
             foreach ($item in @(Get-ChildItem -LiteralPath $sourceDir -File -Recurse -Force)) {
                 $payload += $name + '\' + $item.FullName.Substring($sourceDir.Length).TrimStart([char[]]@('\', '/'))
@@ -1547,6 +1592,33 @@ function Copy-InstallPayload {
     }
 
     return $payload
+}
+
+function Backup-InstallFolder {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return ''
+    }
+    $backup = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-backup-' + [Guid]::NewGuid().ToString('N'))
+    Copy-Item -LiteralPath $Path -Destination $backup -Recurse -Force -ErrorAction Stop
+    return $backup
+}
+
+function Restore-InstallFolder {
+    param(
+        [string]$Backup,
+        [string]$Path
+    )
+
+    if (-not $Backup -or -not (Test-Path -LiteralPath $Backup -PathType Container)) {
+        return
+    }
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        Get-ChildItem -LiteralPath $Path -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Copy-Item -LiteralPath (Join-Path $Backup '*') -Destination $Path -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Backup -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 function Remove-StalePayload {
@@ -2661,14 +2733,14 @@ function Invoke-Strategy {
     if ($result.TargetTotal -gt 0) {
         $targetText = "$($result.TargetsPassed)/$($result.TargetTotal)"
     }
-    Write-Host ("        {0,-10} targets {1,-7} regressions {2}" -f $result.Verdict, $targetText, $result.Regressions) -ForegroundColor $color
+    Write-Info ("        {0,-10} targets {1,-7} regressions {2}" -f $result.Verdict, $targetText, $result.Regressions)
 
     if ($result.Error) {
-        Write-Host ('        error: ' + $result.Error) -ForegroundColor Red
+        Write-Warn ('        error: ' + $result.Error)
     }
 
     foreach ($failed in @($result.Probes | Where-Object { -not $_.Ok })) {
-        Write-Host ("        {0} {1}: {2}" -f $failed.Variant, $failed.Url, $failed.Detail)
+        Write-Info ("        {0} {1}: {2}" -f $failed.Variant, $failed.Url, $failed.Detail)
     }
 
     return $result
@@ -2684,7 +2756,7 @@ function Write-Baseline {
             $state = 'ok'
         }
         $stateText = $state.ToUpperInvariant()
-        Write-Host ("  {0,-7} {1,-60} {2}" -f $probe.Variant, $probe.Url, ($stateText + ': ' + $probe.Detail))
+        Write-Info ("  {0,-7} {1,-60} {2}" -f $probe.Variant, $probe.Url, ($stateText + ': ' + $probe.Detail))
     }
 }
 
@@ -2730,6 +2802,7 @@ function Invoke-Scan {
 
     $exitCode = 0
     $summary = $null
+    $progressStream = $null
     $levelUsed = if ($Level) { $Level } else { $ScanLevel }
 
     try {
@@ -2871,6 +2944,10 @@ function Invoke-Scan {
 
     $installedState = Get-InstalledState -Path (Get-InstallPath)
     if ($null -ne $installedState.Service -and $installedState.Service.Status -ne 'Stopped') {
+        $serviceExe = Join-Path $installedState.Path 'shadowdpi.exe'
+        if (-not (Test-ServiceOwnership -Name $installedState.Service.Name -ExePath $serviceExe)) {
+            throw "Service $($installedState.Service.Name) does not belong to $($installedState.Path). Refusing to stop it."
+        }
         $script:ScanRestartService = $installedState.Service.Name
         [void](Stop-ShadowService -Name $script:ScanRestartService)
     }
@@ -2899,7 +2976,14 @@ function Invoke-Scan {
         catch {
             throw "invalid progress path: $ProgressFile"
         }
-        [IO.File]::WriteAllText($progressPath, '', (New-Object System.Text.UTF8Encoding($false)))
+        # Keep an exclusive handle open for the whole run. The path lives in
+        # %TEMP%, which the non-elevated caller can write to, so a plain
+        # WriteAllText/AppendAllText pair could follow a substituted symlink.
+        $progressStream = [IO.File]::Open(
+            $progressPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::Read)
     }
 
     $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
@@ -2973,9 +3057,10 @@ function Invoke-Scan {
                 targetTotal   = $result.TargetTotal
                 regressions   = $result.Regressions
             }
-            [IO.File]::AppendAllText($progressPath,
-                ($progress | ConvertTo-Json -Compress) + "`n",
-                (New-Object System.Text.UTF8Encoding($false)))
+            $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes(
+                ($progress | ConvertTo-Json -Compress) + "`n")
+            $progressStream.Write($bytes, 0, $bytes.Length)
+            $progressStream.Flush()
         }
     }
 
@@ -3041,7 +3126,18 @@ function Invoke-Scan {
 
     if ($Json) {
         $jsonText = $summary | ConvertTo-Json -Depth 10
-        [IO.File]::WriteAllText($jsonPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
+        $jsonStream = [IO.File]::Open(
+            $jsonPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::Read)
+        try {
+            $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($jsonText)
+            $jsonStream.Write($bytes, 0, $bytes.Length)
+        }
+        finally {
+            $jsonStream.Dispose()
+        }
         Write-Info ''
         Write-Info "JSON written to $jsonPath"
     }
@@ -3058,7 +3154,7 @@ function Invoke-Scan {
 }
 catch {
     if (-not $script:Silent) {
-        Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+        Write-Warn ('error: ' + $_.Exception.Message)
     }
     Write-LogLine -Level ERROR -Message $_.Exception.Message
     $exitCode = 1
@@ -3083,6 +3179,11 @@ finally {
         else {
             Remove-Item -LiteralPath $script:WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    if ($progressStream) {
+        $progressStream.Dispose()
+        $progressStream = $null
     }
 
     if ($script:ScanRestartService) {
@@ -3328,7 +3429,11 @@ function Invoke-InstallAction {
     }
 
     $completed = $false
+    $backup = ''
     try {
+        if ($existing) {
+            $backup = Backup-InstallFolder -Path $path
+        }
         if ($oldServiceName) {
             $oldWasRunning = Stop-ShadowService -Name $oldServiceName
             if ($oldWasRunning -and -not $NoStart) {
@@ -3358,8 +3463,14 @@ function Invoke-InstallAction {
                 }
             }
             Restore-ShadowService -Name $oldServiceName -ExePath (Join-Path $path 'shadowdpi.exe') -Arguments $state.ServiceArgs -StartType $state.StartType -WasRunning $oldServiceWasRunning
+            Restore-InstallFolder -Backup $backup -Path $path
         }
         throw
+    }
+    finally {
+        if ($completed -and $backup -and (Test-Path -LiteralPath $backup -PathType Container)) {
+            Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-Info ''
@@ -3557,9 +3668,9 @@ function Invoke-UninstallAction {
         return 0
     }
 
-    if (-not $Force -and -not $Silent) {
+    if (-not $Force) {
         if (-not (Test-InteractiveHost)) {
-            throw 'Uninstall from a non-interactive session requires -Force or -Silent.'
+            throw 'Uninstall from a non-interactive session requires -Force.'
         }
         if (-not (Read-YesNo -Prompt "Remove ShadowDPI from $path and delete service $serviceName?" -Default $false)) {
             Write-Info 'Cancelled.'
@@ -3574,15 +3685,20 @@ function Invoke-UninstallAction {
         $hasPayload = (Test-Path -LiteralPath (Join-Path $safePath 'shadowdpi.exe') -PathType Leaf) -or (Test-Path -LiteralPath (Join-Path $safePath $script:InstallMetadataName) -PathType Leaf)
     }
 
+    if ($null -ne $safePath -and $hasPayload) {
+        [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
+    }
+
     $removedSomething = ($null -ne $state.Service)
     if ($null -ne $state.Service) {
+        $basePath = if ($safePath) { $safePath } else { $path }
+        if (-not (Test-ServiceOwnership -Name $serviceName -ExePath (Join-Path $basePath 'shadowdpi.exe'))) {
+            throw "Service $serviceName does not belong to $basePath. Refusing to delete it."
+        }
         Remove-ShadowService -Name $serviceName
     }
 
     if ($null -ne $safePath) {
-        if ($hasPayload) {
-            [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
-        }
 
         $current = (Get-Location).ProviderPath
         if (Test-PathWithin -Path $current -Root $safePath) {
@@ -3608,6 +3724,9 @@ function Invoke-UninstallAction {
 
     if ($removedSomething) {
         Remove-UninstallRegistration
+        if ($script:LogFile -and (Test-Path -LiteralPath $script:LogFile -PathType Leaf)) {
+            Remove-Item -LiteralPath $script:LogFile -Force -ErrorAction SilentlyContinue
+        }
         Write-Info 'ShadowDPI was removed.'
     }
     else {
@@ -3666,18 +3785,21 @@ function Invoke-RepairAction {
     $serviceName = $state.ServiceName
     if ($null -ne $state.Service) {
         $serviceName = $state.Service.Name
+        if (-not (Test-ServiceOwnership -Name $serviceName -ExePath (Join-Path $path 'shadowdpi.exe'))) {
+            throw "Service $serviceName does not belong to $path. Refusing to modify it."
+        }
         [void](Stop-ShadowService -Name $serviceName)
     }
     [void](Wait-ForNoShadowProcess -TimeoutSec 10 -ThrowIfFound)
 
     $payload = @(Copy-InstallPayload -SourcePath $source.Path -DestinationPath $path -ScriptPath $script:ScriptPath)
-    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $state.ServiceEnabled -ServiceName $state.ServiceName -ServiceArgs $state.ServiceArgs -StartType $state.StartType -Running $false -Payload $payload
 
     $running = $false
     if ($null -ne $state.Service) {
         Start-ShadowService -Name $serviceName
         $running = $true
     }
+    Write-InstallMetadata -Path $path -Metadata $state.Metadata -VersionText $source.VersionText -SourcePath $source.Path -ServiceEnabled $state.ServiceEnabled -ServiceName $state.ServiceName -ServiceArgs $state.ServiceArgs -StartType $state.StartType -Running $running -Payload $payload
     Set-UninstallRegistration -VersionText $source.VersionText -InstallPath $path -ScriptPath (Join-Path $path 'install.ps1')
     Write-Info "ShadowDPI at $path was repaired."
     return 0
@@ -3722,6 +3844,7 @@ function Invoke-InteractiveMenu {
 
         $exit = $false
         $didAction = $false
+        $actionFailed = $false
         try {
             if ($state.Exists) {
                 switch ($choice) {
@@ -3746,7 +3869,7 @@ function Invoke-InteractiveMenu {
                         $didAction = $true
                     }
                     '6' {
-                        [void](Invoke-MenuScan)
+                        $menuExitCode = Invoke-MenuScan
                         $didAction = $true
                     }
                     '7' {
@@ -3764,7 +3887,7 @@ function Invoke-InteractiveMenu {
                         $didAction = $true
                     }
                     '2' {
-                        [void](Invoke-MenuScan)
+                        $menuExitCode = Invoke-MenuScan
                         $didAction = $true
                     }
                     '3' {
@@ -3775,16 +3898,21 @@ function Invoke-InteractiveMenu {
                     }
                 }
             }
-            if ($didAction) {
-                $menuExitCode = 0
+            # Preserve the exit code of a failing action (for example a scan
+            # that found no working strategy) until the next action succeeds.
+            if ($didAction -and $menuExitCode -ne 0) {
+                $actionFailed = $true
             }
         }
         catch {
-            Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+            Write-Warn ('error: ' + $_.Exception.Message)
             $menuExitCode = 1
         }
 
         if ($exit) {
+            if ($actionFailed) {
+                return 1
+            }
             return $menuExitCode
         }
 
@@ -3824,7 +3952,7 @@ try {
 }
 catch {
     if (-not $script:Silent) {
-        Write-Host ('error: ' + $_.Exception.Message) -ForegroundColor Red
+        Write-Warn ('error: ' + $_.Exception.Message)
     }
     Write-LogLine -Level ERROR -Message $_.Exception.Message
     $exitCode = 1

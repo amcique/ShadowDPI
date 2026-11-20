@@ -476,15 +476,13 @@ bool PacketEngine::send_fragments(const PacketBuffer& packet,
             : std::array<FragmentPart, 2>{FragmentPart::head,
                                           FragmentPart::tail};
 
-    bool sent_any = false;
     for (const auto part : order) {
         if (!send_native_fragment(packet, parsed, fragment_size, part)) {
             note_send_failure();
-            // If nothing reached the wire, let the caller reinject the
-            // original. A partial split must not duplicate the original.
-            return sent_any;
+            // Let the caller reinject the original. TCP tolerates a duplicated
+            // segment, but a truncated one can break the connection.
+            return false;
         }
-        sent_any = true;
     }
     return true;
 }

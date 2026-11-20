@@ -11,17 +11,17 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 
 [[nodiscard]] bool valid_sid(std::string_view sid) noexcept
 {
-    if (sid.size() < 4 || sid.size() > 184 || sid[0] != 'S' ||
-        sid[1] != '-') {
+    if (sid.empty() || sid.size() > 184) {
         return false;
     }
-    for (std::size_t index = 2; index < sid.size(); ++index) {
-        const char character = sid[index];
-        if (character != '-' && (character < '0' || character > '9')) {
-            return false;
-        }
+    std::string text{sid};
+    PSID converted = nullptr;
+    if (!ConvertStringSidToSidA(text.c_str(), &converted)) {
+        return false;
     }
-    return true;
+    const bool valid = IsValidSid(converted) != FALSE;
+    LocalFree(converted);
+    return valid;
 }
 
 [[nodiscard]] bool read_exact(HANDLE handle,
@@ -143,7 +143,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 
 [[nodiscard]] bool write_frame(HANDLE handle,
                                std::span<const std::byte> data,
-                               int max_idle = 500) noexcept
+                               int max_idle = 100) noexcept
 {
     if (data.empty() || data.size() > kMaxFrame) {
         return false;
@@ -287,7 +287,7 @@ void IpcServer::serve_client() noexcept
         // Wait for the client to drain the reply. DisconnectNamedPipe discards
         // unread data, so leaving before this point can lose the response.
         std::byte acknowledgment{};
-        (void)read_exact(pipe_, &acknowledgment, 1, &stop_);
+        (void)read_exact(pipe_, &acknowledgment, 1, &stop_, 20);
     }
 }
 
