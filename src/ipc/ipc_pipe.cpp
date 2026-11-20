@@ -58,7 +58,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 [[nodiscard]] bool write_all(HANDLE handle,
                              const void* data,
                              DWORD length,
-                             int max_idle = 500) noexcept
+                             int max_idle = 100) noexcept
 {
     const auto* bytes = static_cast<const std::byte*>(data);
     DWORD written = 0;
