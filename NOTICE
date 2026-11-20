@@ -13,3 +13,8 @@ The corresponding source code is available at
 https://github.com/basil00/Divert. For a period of three years from the date
 of distribution, the ShadowDPI maintainers will also provide the corresponding
 source code for the WinDivert binaries shipped with each release on request.
+
+This product also uses JSON for Modern C++ 3.12.0
+(https://github.com/nlohmann/json), Copyright (c) 2013-2025 Niels Lohmann.
+It is licensed under the MIT License. The license text is in
+third_party/nlohmann/LICENSE.MIT.

@@ -54,6 +54,10 @@ most providers:
 .\shadowdpi.exe
 ```
 
+An optional tray GUI is also available: `.\shadowdpi-gui.exe`. It runs without
+Administrator rights and controls the service over IPC. See
+[docs/gui.md](docs/gui.md).
+
 If the provider poisons DNS answers, either enable secure DNS in the browser or
 redirect DNS at the packet layer:
 

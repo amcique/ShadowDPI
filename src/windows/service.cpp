@@ -2,14 +2,18 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "shadowdpi/cli.hpp"
 #include "shadowdpi/ipc.hpp"
@@ -34,6 +38,29 @@ std::mutex g_ready_mutex;
 std::thread g_watchdog;
 std::atomic<bool> g_watchdog_stop{false};
 std::atomic<bool> g_service_exiting{false};
+std::vector<std::string> g_effective_arguments;
+std::mutex g_journal_mutex;
+std::deque<std::string> g_journal;
+
+void write_journal(const std::string& line)
+{
+    std::lock_guard lock{g_journal_mutex};
+    g_journal.push_back(line);
+    if (g_journal.size() > 200) {
+        g_journal.pop_front();
+    }
+}
+
+[[nodiscard]] std::string current_preset()
+{
+    for (const auto& argument : g_effective_arguments) {
+        if (argument.size() == 2 && argument[0] == '-' &&
+            argument[1] >= '1' && argument[1] <= '9') {
+            return argument;
+        }
+    }
+    return {};
+}
 
 void report_status() noexcept
 {
@@ -95,13 +122,32 @@ void report_status() noexcept
 
     case MessageType::GetStatus:
         {
-            std::lock_guard lock{g_status_mutex};
+            nlohmann::json status;
+            {
+                std::lock_guard lock{g_status_mutex};
+                status["state"] = g_status.dwCurrentState;
+                status["exit"] = g_status.dwWin32ExitCode;
+                status["checkpoint"] = g_status.dwCheckPoint;
+            }
+            status["pid"] = GetCurrentProcessId();
+            status["preset"] = current_preset();
             response.ok = true;
-            response.message =
-                "state=" + std::to_string(g_status.dwCurrentState) +
-                ";exit=" + std::to_string(g_status.dwWin32ExitCode) +
-                ";checkpoint=" + std::to_string(g_status.dwCheckPoint) +
-                ";pid=" + std::to_string(GetCurrentProcessId());
+            response.message = status.dump();
+        }
+        break;
+
+    case MessageType::GetLog:
+        {
+            nlohmann::json log;
+            log["lines"] = nlohmann::json::array();
+            {
+                std::lock_guard lock{g_journal_mutex};
+                for (const auto& line : g_journal) {
+                    log["lines"].push_back(line);
+                }
+            }
+            response.ok = true;
+            response.message = log.dump();
         }
         break;
 
@@ -134,12 +180,14 @@ void report_status() noexcept
                 response.message = error;
                 break;
             }
+            write_journal("configuration saved via IPC");
             response.ok = true;
             response.message = "saved; restart required";
         }
         break;
 
     case MessageType::Stop:
+        write_journal("stop requested via IPC");
         ShutdownCoordinator::instance().request_stop();
         response.ok = true;
         response.message = "stop requested";
@@ -147,7 +195,6 @@ void report_status() noexcept
 
     case MessageType::Start:
     case MessageType::RunScan:
-    case MessageType::GetLog:
         response.message = "not available in this phase";
         break;
 
@@ -239,8 +286,10 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         g_status.dwCheckPoint = 0;
         g_status.dwWaitHint = 0;
         report_status();
+        write_journal("service running");
     });
 
+    write_journal("service starting");
     const auto config_writer = read_allowed_sid();
     std::unique_ptr<sdp::ipc::IpcServer> ipc;
     std::string ipc_error;
@@ -248,6 +297,7 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         "shadowdpi", sdp::ipc::build_pipe_sddl(config_writer), config_writer);
     ipc->set_handler(handle_ipc_request);
     if (!ipc->start(ipc_error)) {
+        write_journal("IPC unavailable: " + ipc_error);
         OutputDebugStringA(("ShadowDPI IPC unavailable: " + ipc_error).c_str());
     }
 
@@ -257,7 +307,12 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         sdp::ipc::load_config(sdp::ipc::default_config_path(), config_error);
     if (stored && !stored->empty()) {
         effective_arguments = *stored;
+        write_journal("configuration loaded from config.json");
     }
+    else {
+        write_journal("configuration taken from service command line");
+    }
+    g_effective_arguments = effective_arguments;
 
     std::vector<char*> argv;
     argv.reserve(effective_arguments.size() + 1);
@@ -269,6 +324,7 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
     const int result =
         run_application(static_cast<int>(effective_arguments.size()),
                         argv.data());
+    write_journal("service stopped, exit " + std::to_string(result));
 
     if (ipc) {
         ipc->stop();

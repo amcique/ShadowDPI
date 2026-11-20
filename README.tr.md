@@ -53,6 +53,10 @@ budur:
 .\shadowdpi.exe
 ```
 
+İsteğe bağlı bir tepsi arayüzü de vardır: `.\shadowdpi-gui.exe`. Yönetici
+hakları olmadan çalışır ve hizmeti IPC üzerinden yönetir. Ayrıntılar:
+[docs/gui.md](docs/gui.md).
+
 Sağlayıcı DNS yanıtlarını zehirliyorsa tarayıcıda güvenli DNS'i açın veya DNS'i
 paket düzeyinde yönlendirin:
 

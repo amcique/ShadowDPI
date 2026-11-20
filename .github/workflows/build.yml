@@ -146,6 +146,7 @@ jobs:
           $dir = "shadowdpi_x64_${{ steps.vars.outputs.sha_short }}"
           New-Item -ItemType Directory -Path $dir | Out-Null
           Copy-Item build/msvc-x64/Release/shadowdpi.exe $dir
+          Copy-Item build/msvc-x64/Release/shadowdpi-gui.exe $dir
           Copy-Item build/msvc-x64/Release/WinDivert.dll $dir
           Copy-Item build/msvc-x64/Release/WinDivert64.sys $dir
           Get-Content release-files.txt | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | ForEach-Object {
@@ -158,6 +159,9 @@ jobs:
           New-Item -ItemType Directory -Path $thirdParty | Out-Null
           Copy-Item third_party/WinDivert/LICENSE $thirdParty
           Copy-Item third_party/WinDivert/README.md $thirdParty
+          $jsonThirdParty = Join-Path $dir 'third_party/nlohmann'
+          New-Item -ItemType Directory -Path $jsonThirdParty | Out-Null
+          Copy-Item third_party/nlohmann/LICENSE.MIT $jsonThirdParty
 
       - name: Upload output file x64
         uses: actions/upload-artifact@v7

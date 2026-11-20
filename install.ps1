@@ -1450,7 +1450,7 @@ function Copy-InstallPayload {
         Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
         ForEach-Object { $_.Trim() })
 
-    $files = @('shadowdpi.exe', 'WinDivert.dll', 'WinDivert64.sys')
+    $files = @('shadowdpi.exe', 'shadowdpi-gui.exe', 'WinDivert.dll', 'WinDivert64.sys')
     $directories = @()
     foreach ($entry in $entries) {
         if ($entry.EndsWith('/')) {

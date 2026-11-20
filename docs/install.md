@@ -95,6 +95,7 @@ The default install folder is `%ProgramFiles%\ShadowDPI`. The installer copies:
 
 - `install.ps1`
 - `shadowdpi.exe`
+- `shadowdpi-gui.exe`
 - `WinDivert.dll`
 - `WinDivert64.sys`
 - `LICENSE`

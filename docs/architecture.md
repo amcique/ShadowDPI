@@ -9,7 +9,7 @@ future GUI. The GUI itself is not implemented yet.
 | Process | Privilege | Responsibility |
 |---|---|---|
 | `shadowdpi.exe` (service) | LocalSystem, elevated | Owns WinDivert handles, packet loop, trackers, service lifecycle, IPC server |
-| `shadowdpi-gui.exe` (planned) | asInvoker, user session | Status, presets, scanner wizard, log view; never loads WinDivert |
+| `shadowdpi-gui.exe` | asInvoker, user session | Tray status, preset selection, emergency stop, journal view; never loads WinDivert |
 | `install.ps1` | elevated | Copies files, registers the service, writes install metadata |
 
 The service already installs the WinDivert driver at runtime. A future MSI
@@ -41,7 +41,8 @@ Commands:
 | `GetStatus` | implemented, returns service state, exit code, checkpoint, PID |
 | `ApplyConfig` | implemented, validates through `parse_cli()` and persists to `config.json`; takes effect after restart |
 | `Stop` | implemented, requests shutdown through `ShutdownCoordinator` |
-| `Start`, `RunScan`, `GetLog` | reserved, return an explicit "not available in this phase" error |
+| `GetLog` | implemented, returns the recent service journal as JSON |
+| `Start`, `RunScan` | reserved, return an explicit "not available in this phase" error |
 
 The GUI is expected to start and stop the service through the Service Control
 Manager, not through IPC, because a stopped service has no pipe.

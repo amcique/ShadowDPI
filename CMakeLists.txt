@@ -208,6 +208,7 @@ add_executable(shadowdpi
 
 target_include_directories(shadowdpi PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/windows"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
     "${WINDIVERT_INCLUDE_DIR}"
 )
 
@@ -226,6 +227,59 @@ target_compile_options(shadowdpi PRIVATE
 )
 
 target_link_options(shadowdpi PRIVATE
+    /DYNAMICBASE /NXCOMPAT /MANIFEST:NO
+)
+
+# ---------------------------------------------------------------------------
+# Tray GUI: unprivileged front end over the service IPC.
+# ---------------------------------------------------------------------------
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/shadowdpi-gui.exe.manifest.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.exe.manifest"
+    @ONLY
+)
+
+file(TO_NATIVE_PATH
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.exe.manifest"
+    SHADOWDPI_GUI_MANIFEST_RESOURCE)
+string(REPLACE "\\" "\\\\" SHADOWDPI_GUI_MANIFEST_RESOURCE
+    "${SHADOWDPI_GUI_MANIFEST_RESOURCE}")
+file(TO_NATIVE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.ico"
+    SHADOWDPI_GUI_ICON_RESOURCE)
+string(REPLACE "\\" "\\\\" SHADOWDPI_GUI_ICON_RESOURCE
+    "${SHADOWDPI_GUI_ICON_RESOURCE}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/shadowdpi-gui.rc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.rc"
+    @ONLY
+)
+
+add_executable(shadowdpi_gui WIN32
+    src/gui/main.cpp
+    src/gui/presets.cpp
+    src/gui/strings.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.rc"
+)
+
+target_include_directories(shadowdpi_gui PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
+)
+
+target_link_libraries(shadowdpi_gui PRIVATE
+    shadowdpi_ipc
+    shell32
+)
+
+set_target_properties(shadowdpi_gui PROPERTIES OUTPUT_NAME "shadowdpi-gui")
+
+target_compile_features(shadowdpi_gui PRIVATE cxx_std_20)
+target_compile_options(shadowdpi_gui PRIVATE
+    ${SHADOWDPI_WARNING_FLAGS}
+    /guard:cf /sdl
+)
+target_link_options(shadowdpi_gui PRIVATE
     /DYNAMICBASE /NXCOMPAT /MANIFEST:NO
 )
 
@@ -328,4 +382,18 @@ if(SHADOWDPI_BUILD_TESTS)
         ${SHADOWDPI_WARNING_FLAGS}
     )
     add_test(NAME ipc COMMAND shadowdpi_ipc_tests)
+
+    add_executable(shadowdpi_gui_tests tests/gui_tests.cpp
+        src/gui/presets.cpp
+        src/gui/strings.cpp
+    )
+    target_include_directories(shadowdpi_gui_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/gui"
+    )
+    target_link_libraries(shadowdpi_gui_tests PRIVATE shadowdpi_core)
+    target_compile_features(shadowdpi_gui_tests PRIVATE cxx_std_20)
+    target_compile_options(shadowdpi_gui_tests PRIVATE
+        ${SHADOWDPI_WARNING_FLAGS}
+    )
+    add_test(NAME gui COMMAND shadowdpi_gui_tests)
 endif()

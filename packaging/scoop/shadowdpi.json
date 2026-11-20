@@ -11,11 +11,18 @@
       "extract_dir": "shadowdpi-0.4.0-x64"
     }
   },
-  "bin": "shadowdpi.exe",
+  "bin": [
+    "shadowdpi.exe",
+    "shadowdpi-gui.exe"
+  ],
   "shortcuts": [
     [
       "shadowdpi.exe",
       "ShadowDPI"
+    ],
+    [
+      "shadowdpi-gui.exe",
+      "ShadowDPI tray"
     ]
   ],
   "notes": [
