@@ -68,6 +68,9 @@ int main()
           arguments.end());
     CHECK(std::find(arguments.begin(), arguments.end(), "1.1.1.1") !=
           arguments.end());
+    CHECK(std::count(arguments.begin(), arguments.end(), "-Urls") == 1);
+    CHECK(std::find(arguments.begin(), arguments.end(), "example.com") !=
+          arguments.end());
     options.dns_addr.clear();
     const auto system_dns = sdp::gui::build_scan_arguments(
         options, "C:\\temp\\result.json", "C:\\temp\\progress.jsonl");

@@ -20,9 +20,16 @@ std::vector<std::string> build_scan_arguments(const ScanOptions& options,
         arguments.push_back("-UrlFile");
         arguments.push_back(options.url_file);
     }
-    for (const auto& url : options.urls) {
+    if (!options.urls.empty()) {
+        std::string joined;
+        for (const auto& url : options.urls) {
+            if (!joined.empty()) {
+                joined += ',';
+            }
+            joined += url;
+        }
         arguments.push_back("-Urls");
-        arguments.push_back(url);
+        arguments.push_back(joined);
     }
     if (!options.dns_addr.empty()) {
         arguments.push_back("-DnsAddr");
