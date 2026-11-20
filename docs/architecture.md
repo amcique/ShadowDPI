@@ -27,8 +27,8 @@ Administrators have full access; Authenticated Users can connect to read
 status. No command is authorized by connection alone: the server impersonates
 each caller and checks membership in the Administrators group or in the
 optional `HKLM\Software\ShadowDPI\IpcAllowedSid` principal before allowing
-`ApplyConfig`, `Stop`, `Start`, `RunScan` or `GetLog`. `Handshake`,
-`GetStatus` and `GetLog` are available to any authenticated caller. Without that registry
+`ApplyConfig`, `Stop`, `Start` or `RunScan`. `Handshake`, `GetStatus` and
+`GetLog` are available to any authenticated caller. Without that registry
 value, a standard user can observe but not change anything. The caller PID in
 the handshake is informational and is never used as a credential.
 

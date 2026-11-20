@@ -45,6 +45,7 @@ std::thread g_poller;
 
 struct StatusSnapshot {
     bool available{false};
+    bool malformed{false};
     bool running{false};
     std::string preset;
     unsigned int pid{0};
@@ -111,6 +112,7 @@ void poll_status()
             snapshot.pid = status.value("pid", 0U);
         }
         catch (...) {
+            snapshot.malformed = true;
         }
     }
     {
@@ -139,7 +141,8 @@ void update_status_ui()
 
     const auto& strings = sdp::gui::english();
     if (!snapshot.available) {
-        update_tray(strings.status_unavailable);
+        update_tray(snapshot.malformed ? strings.parse_error
+                                       : strings.status_unavailable);
         return;
     }
 
