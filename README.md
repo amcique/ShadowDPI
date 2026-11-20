@@ -398,15 +398,15 @@ Every release publishes `shadowdpi-<version>-x64.zip` and a matching `.sha256`
 file:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.4.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.4.0-x64.sha256 | Select-String 'shadowdpi-0.4.0-x64.zip'
+Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.5.0-x64.sha256 | Select-String 'shadowdpi-0.5.0-x64.zip'
 ```
 
 The zip is also covered by a GitHub build-provenance attestation, which records
 the workflow, commit, and runner that produced the archive:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.4.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
 ```
 
 If either check fails, do not run the binary.

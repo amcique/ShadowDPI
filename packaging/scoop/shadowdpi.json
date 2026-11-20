@@ -1,14 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Modern and lightweight DPI circumvention utility for Windows x64.",
   "homepage": "https://github.com/amcique/ShadowDPI",
   "license": "GPL-3.0-only",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/amcique/ShadowDPI/releases/download/v0.4.0/shadowdpi-0.4.0-x64.zip",
+      "url": "https://github.com/amcique/ShadowDPI/releases/download/v0.5.0/shadowdpi-0.5.0-x64.zip",
       "hash": "8b1db3cb1449e452b32df9747f4ea3b6e2ff0ed3bc1ff9248f439114bcc32854",
-      "extract_dir": "shadowdpi-0.4.0-x64"
+      "extract_dir": "shadowdpi-0.5.0-x64"
     }
   },
   "bin": [

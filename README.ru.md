@@ -406,15 +406,15 @@ TTL и поля порядкового номера или контрольно�
 Каждый релиз публикует `shadowdpi-<версия>-x64.zip` и файл `.sha256` к нему:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.4.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.4.0-x64.sha256 | Select-String 'shadowdpi-0.4.0-x64.zip'
+Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.5.0-x64.sha256 | Select-String 'shadowdpi-0.5.0-x64.zip'
 ```
 
 Кроме того, zip покрыт аттестацией происхождения сборки GitHub, которая
 фиксирует workflow, коммит и runner, создавшие файл:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.4.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
 ```
 
 Если проверка не проходит, не запускайте бинарник.

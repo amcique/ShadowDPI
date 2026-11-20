@@ -68,9 +68,9 @@ Describe 'install.ps1 pure functions' {
         $root = 'Registry::HKEY_CURRENT_USER\Software\ShadowDPI-Installer-Test'
         $key = Join-Path $root $script:UninstallKeyName
         try {
-            Set-UninstallRegistration -VersionText 'ShadowDPI 0.4.0 (C++20)' -InstallPath 'C:\Tools\ShadowDPI' -ScriptPath 'C:\Tools\ShadowDPI\install.ps1' -Root $root
+            Set-UninstallRegistration -VersionText 'ShadowDPI 0.5.0 (C++20)' -InstallPath 'C:\Tools\ShadowDPI' -ScriptPath 'C:\Tools\ShadowDPI\install.ps1' -Root $root
             (Get-ItemProperty -LiteralPath $key).DisplayName | Should -Be 'ShadowDPI'
-            (Get-ItemProperty -LiteralPath $key).DisplayVersion | Should -Be '0.4.0'
+            (Get-ItemProperty -LiteralPath $key).DisplayVersion | Should -Be '0.5.0'
             (Get-ItemProperty -LiteralPath $key).QuietUninstallString | Should -Match '-Silent'
             Remove-UninstallRegistration -Root $root
             Test-Path -LiteralPath $key | Should -BeFalse
