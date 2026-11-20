@@ -272,8 +272,9 @@ ShadowDPI требует права администратора, поэтому
   времени выполнения MSVC; релиз содержит подходящие DLL и драйвер WinDivert.
   Запускать `install.ps1` необязательно: скрипт только копирует файлы и
   регистрирует службу.
-- **Windows PowerShell 5.1 или PowerShell 7** нужны для `install.ps1`, сканеру также нужен `curl.exe`.
-  Оба входят в Windows 10 и новее.
+- **Windows PowerShell 5.1 или PowerShell 7** нужны для `install.ps1`, сканеру
+  также нужен `curl.exe`. Windows PowerShell 5.1 и `curl.exe` входят в Windows 10
+  и новее; PowerShell 7 нужно установить отдельно.
 
 ## Сборка из исходников (MSVC x64)
 

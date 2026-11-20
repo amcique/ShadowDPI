@@ -276,8 +276,9 @@ bildirin.
   kullanılır; sürüm paketi uyumlu WinDivert DLL ve sürücüsünü içerir.
   `install.ps1` çalıştırmak zorunlu değildir, yalnızca dosyaları kopyalar ve
   hizmeti kaydeder.
-- **Windows PowerShell 5.1 veya PowerShell 7** `install.ps1` için gereklidir. Strateji tarayıcısı ayrıca
-  `curl.exe` ister. İkisi de Windows 10 ve sonrasında gelir.
+- **Windows PowerShell 5.1 veya PowerShell 7** `install.ps1` için gereklidir.
+  Strateji tarayıcısı ayrıca `curl.exe` ister. Windows PowerShell 5.1 ve
+  `curl.exe` Windows 10 ve sonrasında gelir; PowerShell 7 ayrıca kurulmalıdır.
 
 ## Kaynaktan derleme (MSVC x64)
 

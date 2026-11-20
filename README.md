@@ -267,10 +267,11 @@ open a public issue.
   WinDivert driver is loaded on first run.
 - **No runtime to install.** The executable uses the static MSVC runtime, and
   the release includes the matching WinDivert DLL and driver. Running
-  Running `install.ps1` is optional; the script only copies those files and
+  `install.ps1` is optional; the script only copies those files and
   registers the service.
-- **Windows PowerShell 5.1 or PowerShell 7** is needed for `install.ps1`. The strategy scanner also
-  needs `curl.exe`. Both ship with Windows 10 and later.
+- **Windows PowerShell 5.1 or PowerShell 7** is needed for `install.ps1`. The
+  strategy scanner also needs `curl.exe`. Windows PowerShell 5.1 and `curl.exe`
+  ship with Windows 10 and later; PowerShell 7 is a separate download.
 
 ## Build from source (MSVC x64)
 
