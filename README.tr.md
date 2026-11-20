@@ -32,18 +32,26 @@ değildir: IP adresiniz değişmez ve trafiğiniz başka bir sunucudan geçmez.
 
 ## Hızlı başlangıç
 
-1. [Son sürümü](https://github.com/amcique/ShadowDPI/releases) indirin.
-2. Arşivi herhangi bir klasöre çıkarın. Pakette `install.ps1`, `WinDivert.dll` ve
-   `WinDivert64.sys` birlikte gelir.
-3. Yönetici olarak açtığınız PowerShell'de, arşivi çıkardığınız klasörden:
+1. [Son sürümü](https://github.com/amcique/ShadowDPI/releases) indirin. Windows
+   x64 için bir MSI kurulum dosyası ve taşınabilir bir zip dosyası yayınlanır.
+2. Sihirbazlı kurulum için `shadowdpi-<version>-x64.msi` dosyasını çalıştırın.
+   Dosyaları `%ProgramFiles%\ShadowDPI` klasörüne kopyalar, `-9` ile otomatik
+   başlayan `ShadowDPI` hizmetini kaydeder ve başlatır. Sihirbazda hizmet adını,
+   bağımsız değişkenleri, başlatma modunu ve hizmetin hemen başlatılıp
+   başlatılmayacağını değiştirebilirsiniz. `install.ps1` ile yapılmış eski bir
+   kurulum varsa önce onu kaldırın.
+3. Taşınabilir kopya için `shadowdpi-<version>-x64.zip` dosyasını herhangi bir
+   klasöre çıkarın. Pakette `install.ps1`, `WinDivert.dll` ve `WinDivert64.sys`
+   birlikte gelir. Yönetici olarak açtığınız PowerShell'de, o klasörden:
 
    ```powershell
    .\install.ps1 -Action install
    ```
 
-Bu komut, dosyaları `%ProgramFiles%\ShadowDPI` klasörüne kopyalar, `-9` ile
-otomatik başlayan `ShadowDPI` hizmetini kaydeder ve başlatır. `-Action install
--NoService` yalnızca dosyaları kopyalar, hizmet oluşturmaz.
+   `-Action install -NoService` yalnızca dosyaları kopyalar, hizmet oluşturmaz.
+
+Ne MSI ne de arşiv imzalıdır. İndirilen dosyayı doğrulama yöntemi
+[SECURITY.md](SECURITY.md) dosyasındadır.
 
 Kurmadan denemek için çalıştırılabilir dosyayı yönetici olarak başlatın.
 Bağımsız değişken verilmezse `-9` uygulanır; çoğu sağlayıcı için doğru ilk deneme
@@ -65,12 +73,14 @@ paket düzeyinde yönlendirin:
 .\shadowdpi.exe -9 --dns-addr 77.88.8.8 --dns-port 1253
 ```
 
-Yükseltmek için yeni sürümü çıkarın ve o klasörde `.\install.ps1 -Action
-upgrade` çalıştırın; mevcut hizmet ayarları korunur. Hizmet bağımsız
+MSI kurulumunu yükseltmek için yeni MSI dosyasını çalıştırın; hizmet ayarları
+korunur. Taşınabilir kopyayı yükseltmek için yeni sürümü çıkarın ve o klasörde
+`.\install.ps1 -Action upgrade` çalıştırın. Taşınabilir kopyada hizmet bağımsız
 değişkenlerini değiştirmek veya hizmeti kaldırmak için `-Action reconfigure` ve
-`-Action uninstall` kullanın. Elle güncellerken `shadowdpi.exe`,
-`WinDivert.dll` ve `WinDivert64.sys` dosyalarını birlikte değiştirin, böylece
-sürümleri uyumlu kalsın.
+`-Action uninstall` kullanın. MSI kurulumunu Windows Ayarları veya `msiexec /x`
+ile kaldırabilirsiniz. Elle güncellerken `shadowdpi.exe`, `WinDivert.dll` ve
+`WinDivert64.sys` dosyalarını birlikte değiştirin, böylece sürümleri uyumlu
+kalsın.
 
 ## Neden ShadowDPI
 

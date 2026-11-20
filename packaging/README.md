@@ -32,6 +32,25 @@ regular release zip.
 To publish, add the manifest to a bucket repository (your own, or a public one
 such as `ScoopInstaller/Extras` after the project has a release history).
 
+## WiX MSI
+
+`packaging/wix/ShadowDPI.wxs` builds an MSI from the same staged x64 release
+directory that becomes the zip. The toolchain is pinned in
+`.config/dotnet-tools.json` as WiX 7.0.1. The MSI is unsigned; there is no
+company or code-signing certificate to present a verified publisher.
+
+Build a staged release directory first, then run:
+
+```powershell
+dotnet tool restore
+.\packaging\wix\build.ps1 -SourceDir .\shadowdpi_x64_<sha> -Version 0.5.0
+```
+
+The script writes `shadowdpi-0.5.0-x64.msi` into `build\msi-out`. CI runs the same
+build, validates the MSI with ICE rules, performs a silent install and uninstall
+smoke test, and publishes the MSI next to the zip. `packaging/wix/obj`,
+`packaging/wix/bin`, `*.msi`, and `*.wixpdb` are ignored by Git.
+
 ## Installed layout
 
 The installed layout must keep these four files together:

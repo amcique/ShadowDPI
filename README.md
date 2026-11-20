@@ -34,17 +34,25 @@ your IP address does not change, and traffic is not sent through another server.
 ## Quick start
 
 1. Download the [latest release](https://github.com/amcique/ShadowDPI/releases).
-2. Unpack the archive in any folder. The archive contains `install.ps1`,
-   `WinDivert.dll`, and `WinDivert64.sys`.
-3. From an elevated PowerShell in the unpacked folder:
+   Two Windows x64 files are published: an MSI installer and a portable zip.
+2. For a guided setup, run `shadowdpi-<version>-x64.msi`. It copies the files to
+   `%ProgramFiles%\ShadowDPI`, registers an auto-start `ShadowDPI` service with
+   `-9`, and starts it. The setup dialog lets you change the service name, the
+   arguments, the start mode, and whether to start the service. If an older
+   install made with `install.ps1` is present, uninstall it first.
+3. For a portable copy, unpack `shadowdpi-<version>-x64.zip` in any folder. The
+   archive contains `install.ps1`, `WinDivert.dll`, and `WinDivert64.sys`. From
+   an elevated PowerShell in that folder:
 
    ```powershell
    .\install.ps1 -Action install
    ```
 
-The installer copies the files to `%ProgramFiles%\ShadowDPI`, registers an
-auto-start `ShadowDPI` service with `-9`, and starts the service. Use
-`-Action install -NoService` to copy the files without creating a service.
+   Use `-Action install -NoService` to copy the files without creating a
+   service.
+
+Both the MSI and the archive are unsigned. See [SECURITY.md](SECURITY.md) for
+how to verify a download.
 
 For a no-install trial, run the executable directly from an elevated prompt.
 Without arguments, the executable applies `-9`, the right first attempt for
@@ -66,11 +74,13 @@ redirect DNS at the packet layer:
 .\shadowdpi.exe -9 --dns-addr 77.88.8.8 --dns-port 1253
 ```
 
-To upgrade, unpack the new release and run `.\install.ps1 -Action upgrade` from
-that folder; existing service settings are kept. To change service arguments or
-remove the service, use `-Action reconfigure` or `-Action uninstall`. When
-updating by hand, replace `shadowdpi.exe`, `WinDivert.dll`, and
-`WinDivert64.sys` together so their versions stay matched.
+To upgrade an MSI install, run the new MSI; service settings are kept. To upgrade
+a portable install, unpack the new release and run `.\install.ps1 -Action
+upgrade` from that folder. To change service arguments or remove the service in
+a portable install, use `-Action reconfigure` or `-Action uninstall`. Remove an
+MSI install from Windows Settings or with `msiexec /x`. When updating by hand,
+replace `shadowdpi.exe`, `WinDivert.dll`, and `WinDivert64.sys` together so their
+versions stay matched.
 
 ## Why ShadowDPI
 

@@ -57,9 +57,10 @@ development branch and may be broken at any time.
 - **DPI evasion failing against your provider.** That is a tuning problem, not a
   vulnerability. Use [the strategy scanner](docs/scan.md) and open a normal
   issue.
-- **Antivirus or SmartScreen warnings.** The release binaries are not
-  Authenticode-signed and WinDivert is a kernel driver, so reputation prompts
-  are expected. Verify the published SHA-256 sums instead; see the README.
+- **Antivirus or SmartScreen warnings.** The MSI and the release binaries are
+  not Authenticode-signed and WinDivert is a kernel driver, so reputation prompts
+  are expected. Verify the published SHA-256 sums or the GitHub attestation
+  instead; see the README.
 - **"This tool can be used to bypass network policy."** ShadowDPI is a network
   research and censorship-circumvention tool. Its intended use is described in
   the README.
@@ -92,8 +93,8 @@ These are the properties a report should be measured against.
   rather than grow without limit under a spoofed-packet flood.
 - **No telemetry.** ShadowDPI makes no outbound connections of its own.
 - **Verifiable builds.** Releases are built in GitHub Actions from the tagged
-  commit, the workflow pins the WinDivert 2.2.0-D SHA-256, and every archive is
-  published with a build-provenance attestation. Verify one with
+  commit, the workflow pins the WinDivert 2.2.0-D SHA-256, and both the zip and
+  the MSI are published with a build-provenance attestation. Verify one with
   `gh attestation verify`, as the release notes describe. The build is not
   bit-for-bit reproducible: the runner image and the MSVC version follow the
   hosted image rather than a pinned toolchain, so rebuilding produces a working

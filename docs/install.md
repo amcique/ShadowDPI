@@ -47,6 +47,38 @@ To install without starting the service after it is registered:
 .\install.ps1 -Action install -NoStart
 ```
 
+## MSI installer
+
+Each release also publishes `shadowdpi-<version>-x64.msi`. It is an alternative
+to the PowerShell installer, not a replacement: the zip and `install.ps1`
+continue to work, including for Scoop installs and upgrades. The MSI is unsigned,
+so Windows may show an Unknown publisher warning and SmartScreen may warn. Verify
+the download with the published SHA-256 manifest or a GitHub attestation, as
+described in [SECURITY.md](../SECURITY.md).
+
+The MSI installs to `%ProgramFiles%\ShadowDPI`, keeps the WinDivert files beside
+the executables, registers the auto-start service, adds Start menu shortcuts,
+and creates an Add/Remove Programs entry named `ShadowDPI <version>`. The setup
+dialog asks for the service name, the service arguments, the start mode
+(Automatic, Manual, or Disabled), and whether to start the service after setup.
+Defaults are `ShadowDPI`, `-9`, Automatic, and start after setup.
+
+Upgrade by running a newer MSI. The service settings are stored in the registry
+under `HKLM\SOFTWARE\ShadowDPI`, so the new MSI reads them back and keeps them.
+Repair and Remove are available from Windows Settings. For unattended use:
+
+```powershell
+msiexec /i shadowdpi-0.5.0-x64.msi /qn /norestart `
+  INSTALLFOLDER="D:\Tools\ShadowDPI" SERVICENAME=ShadowDPI `
+  SERVICEARGS="-9" SERVICESTARTMODE=auto STARTATSERVICE=1
+msiexec /x shadowdpi-0.5.0-x64.msi /qn /norestart
+```
+
+Uninstall stops and deletes the service, removes the registry settings and
+shortcuts, and removes the install folder. An MSI install refuses to proceed if
+a legacy Add/Remove Programs entry with Publisher `amcique` exists. Run
+`install.ps1 -Action uninstall -Force` from the old install folder first.
+
 ## Actions
 
 | Action | What it does |
