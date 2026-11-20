@@ -24,7 +24,6 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <wincrypt.h>
-#include <sddl.h>
 
 namespace sdp::gui {
 namespace {
@@ -215,34 +214,6 @@ void label(HWND parent, const std::wstring& text, int x, int y, int width)
     return result;
 }
 
-[[nodiscard]] bool create_protected_copy(const std::wstring& path,
-                                         std::string_view bytes)
-{
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
-            "D:P(A;;GR;;;SY)(A;;GR;;;BA)(A;;GR;;;IU)", SDDL_REVISION_1,
-            &descriptor, nullptr)) {
-        return false;
-    }
-    SECURITY_ATTRIBUTES attributes{};
-    attributes.nLength = sizeof(attributes);
-    attributes.lpSecurityDescriptor = descriptor;
-
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
-                              &attributes, CREATE_NEW,
-                              FILE_ATTRIBUTE_TEMPORARY, nullptr);
-    LocalFree(descriptor);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-    DWORD written = 0;
-    const BOOL ok = WriteFile(file, bytes.data(),
-                              static_cast<DWORD>(bytes.size()), &written,
-                              nullptr);
-    CloseHandle(file);
-    return ok != FALSE && written == bytes.size();
-}
-
 [[nodiscard]] std::wstring powershell_path()
 {
     wchar_t directory[MAX_PATH]{};
@@ -280,7 +251,6 @@ struct ScanState {
     HANDLE process{nullptr};
     std::wstring json_path;
     std::wstring progress_path;
-    std::wstring script_copy_path;
     ScanSummary summary;
     ProgressCollector collector;
 };
@@ -313,10 +283,6 @@ void finish_scan(HWND window)
         g_scan.process = nullptr;
     }
     KillTimer(window, 1);
-    if (!g_scan.script_copy_path.empty()) {
-        { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
-        g_scan.script_copy_path.clear();
-    }
     EnableWindow(GetDlgItem(window, kScanStart), TRUE);
     EnableWindow(GetDlgItem(window, kScanClose), TRUE);
 
@@ -445,20 +411,8 @@ LRESULT CALLBACK scan_proc(HWND window,
                                  MB_OK | MB_ICONWARNING);
                     return 0;
                 }
-                // Bind the check and the elevated use to the same bytes. The
-                // copy has a DACL that a standard user cannot write to.
-                g_scan.script_copy_path = temporary_path(L"-install.ps1");
-                if (!create_protected_copy(g_scan.script_copy_path,
-                                           script_bytes)) {
-                    g_scan.script_copy_path.clear();
-                    show_message(window, widen(strings.scan_script_invalid),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
                 const auto powershell = powershell_path();
                 if (powershell.empty()) {
-                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
-                    g_scan.script_copy_path.clear();
                     show_message(window, widen(strings.scan_elevation),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
@@ -527,15 +481,45 @@ LRESULT CALLBACK scan_proc(HWND window,
                 SendMessageW(GetDlgItem(window, kScanProgress), LB_RESETCONTENT,
                              0, 0);
 
-                const auto arguments = build_scan_arguments(
+                auto arguments = build_scan_arguments(
                     options, narrow_text(g_scan.json_path),
                     narrow_text(g_scan.progress_path));
-                std::wstring parameters =
-                    L"-NoProfile -ExecutionPolicy Bypass -File " +
-                    quote_windows_argument(g_scan.script_copy_path);
+                arguments.push_back("-SourcePath");
+                arguments.push_back(narrow_text(
+                    std::filesystem::path(script).parent_path().wstring()));
+
+                const auto ps_quote = [](std::wstring_view value) {
+                    std::wstring result{L'\''};
+                    for (const wchar_t character : value) {
+                        if (character == L'\'') {
+                            result += L"''";
+                        }
+                        else {
+                            result.push_back(character);
+                        }
+                    }
+                    result += L'\'';
+                    return result;
+                };
+                // The elevated process reads and hashes the bytes itself, then
+                // executes those same bytes from a scriptblock. Even a same-user
+                // racing process cannot substitute the script after UAC.
+                std::wstring command =
+                    L"$e=" +
+                    ps_quote(widen(std::string_view{kInstallScriptSha256})) +
+                    L";$p=" + ps_quote(script) +
+                    L";$b=[IO.File]::ReadAllBytes($p);"
+                    L"$m=New-Object IO.MemoryStream(,$b);"
+                    L"$h=(Get-FileHash -InputStream $m -Algorithm SHA256).Hash.ToLowerInvariant();"
+                    L"if($h -ne $e){exit 3};"
+                    L"$t=[Text.Encoding]::UTF8.GetString($b);"
+                    L"$s=[ScriptBlock]::Create($t);& $s";
                 for (const auto& argument : arguments) {
-                    parameters += L" " + quote_windows_argument(widen(argument));
+                    command += L" " + ps_quote(widen(argument));
                 }
+                std::wstring parameters =
+                    L"-NoProfile -ExecutionPolicy Bypass -Command " +
+                    quote_windows_argument(command);
 
                 SHELLEXECUTEINFOW info{};
                 info.cbSize = sizeof(info);
@@ -544,16 +528,7 @@ LRESULT CALLBACK scan_proc(HWND window,
                 info.lpFile = powershell.c_str();
                 info.lpParameters = parameters.c_str();
                 info.nShow = SW_HIDE;
-                if (!ShellExecuteExW(&info)) {
-                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
-                    g_scan.script_copy_path.clear();
-                    show_message(window, widen(strings.scan_elevation),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                if (info.hProcess == nullptr) {
-                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
-                    g_scan.script_copy_path.clear();
+                if (!ShellExecuteExW(&info) || info.hProcess == nullptr) {
                     show_message(window, widen(strings.scan_elevation),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
@@ -597,10 +572,6 @@ LRESULT CALLBACK scan_proc(HWND window,
         if (g_scan.process != nullptr) {
             CloseHandle(g_scan.process);
             g_scan.process = nullptr;
-        }
-        if (!g_scan.script_copy_path.empty()) {
-            { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
-            g_scan.script_copy_path.clear();
         }
         KillTimer(window, 1);
         g_scan.window = nullptr;

@@ -38,11 +38,11 @@ finished. The wizard follows progress from `-ProgressFile`, then reads the
 strategy** sends that strategy to the service through `ApplyConfig`.
 
 The DNS resolver choice is always `system` unless an explicit DNS address is
-entered, so the elevated scan never waits for an interactive prompt. Before
-elevating, the wizard verifies `install.ps1` against a build-time SHA-256 and
-passes a protected, read-only copy to PowerShell, so the elevated script cannot
-be substituted between the check and execution. A mismatch asks you to
-reinstall ShadowDPI.
+entered, so the elevated scan never waits for an interactive prompt. The
+elevated PowerShell reads `install.ps1`, verifies it against the build-time
+SHA-256 carried in the command, and executes those same bytes from a script
+block. A same-user process cannot substitute the script between the check and
+execution. A mismatch exits with an error.
 
 ## Editors
 
