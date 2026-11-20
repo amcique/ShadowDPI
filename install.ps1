@@ -3856,34 +3856,26 @@ function Invoke-InteractiveMenu {
         $choice = $choice.Trim()
 
         $exit = $false
-        $didAction = $false
-        $actionFailed = $false
         try {
             if ($state.Exists) {
                 switch ($choice) {
                     '1' {
                         $menuExitCode = Invoke-InstallAction -Mode install -AssumeYes
-                        $didAction = $true
                     }
                     '2' {
                         $menuExitCode = Invoke-InstallAction -Mode upgrade -AssumeYes
-                        $didAction = $true
                     }
                     '3' {
                         $menuExitCode = Invoke-ReconfigureAction
-                        $didAction = $true
                     }
                     '4' {
                         $menuExitCode = Invoke-RepairAction
-                        $didAction = $true
                     }
                     '5' {
                         $menuExitCode = Invoke-UninstallAction
-                        $didAction = $true
                     }
                     '6' {
                         $menuExitCode = Invoke-MenuScan
-                        $didAction = $true
                     }
                     '7' {
                         $exit = $true
@@ -3897,11 +3889,9 @@ function Invoke-InteractiveMenu {
                 switch ($choice) {
                     '1' {
                         $menuExitCode = Invoke-InstallAction -Mode install -AssumeYes
-                        $didAction = $true
                     }
                     '2' {
                         $menuExitCode = Invoke-MenuScan
-                        $didAction = $true
                     }
                     '3' {
                         $exit = $true
@@ -3911,21 +3901,12 @@ function Invoke-InteractiveMenu {
                     }
                 }
             }
-            # Keep the last action's real exit code (a scan may return 2).
-            # A later successful action resets it to 0.
-            if ($didAction) {
-                if ($menuExitCode -eq 0) {
-                    $actionFailed = $false
-                }
-                else {
-                    $actionFailed = $true
-                }
-            }
+            # Each action assigned $menuExitCode from its own return value, so
+            # a later successful action already resets a previous failure.
         }
         catch {
             Write-Warn ('error: ' + $_.Exception.Message)
             $menuExitCode = 1
-            $actionFailed = $true
         }
 
         if ($exit) {
