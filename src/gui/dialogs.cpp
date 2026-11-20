@@ -24,6 +24,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <wincrypt.h>
+#include <sddl.h>
 
 namespace sdp::gui {
 namespace {
@@ -161,53 +162,47 @@ void label(HWND parent, const std::wstring& text, int x, int y, int width)
     if (length > 0 && length < MAX_PATH) {
         const auto path = std::filesystem::path(module_path);
         const auto candidate = path.parent_path() / "install.ps1";
-        if (std::filesystem::exists(candidate)) {
+        std::error_code error;
+        if (std::filesystem::exists(candidate, error) && !error) {
             return candidate.wstring();
         }
     }
     return L"C:\\Program Files\\ShadowDPI\\install.ps1";
 }
 
-[[nodiscard]] std::string file_sha256(const std::filesystem::path& path)
+[[nodiscard]] bool read_file_bytes(const std::filesystem::path& path,
+                                   std::string& bytes)
 {
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-                              nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return {};
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
     }
+    std::ostringstream contents;
+    contents << file.rdbuf();
+    bytes = contents.str();
+    return static_cast<bool>(file);
+}
 
+[[nodiscard]] std::string sha256_bytes(std::string_view bytes)
+{
     HCRYPTPROV provider = 0;
     HCRYPTHASH hash = 0;
     std::string result;
     if (CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_FULL,
                              CRYPT_VERIFYCONTEXT) &&
-        CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
-        std::array<std::byte, 8192> buffer{};
-        DWORD read = 0;
-        bool ok = true;
-        while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
-                        &read, nullptr) &&
-               read > 0) {
-            if (!CryptHashData(hash, reinterpret_cast<const BYTE*>(
-                                         buffer.data()),
-                               read, 0)) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) {
-            BYTE digest[32]{};
-            DWORD digest_length = sizeof(digest);
-            if (CryptGetHashParam(hash, HP_HASHVAL, digest, &digest_length,
-                                  0) &&
-                digest_length == sizeof(digest)) {
-                static constexpr char kHex[] = "0123456789abcdef";
-                result.reserve(digest_length * 2);
-                for (const BYTE value : digest) {
-                    result.push_back(kHex[value >> 4U]);
-                    result.push_back(kHex[value & 0x0FU]);
-                }
+        CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash) &&
+        CryptHashData(hash,
+                      reinterpret_cast<const BYTE*>(bytes.data()),
+                      static_cast<DWORD>(bytes.size()), 0)) {
+        BYTE digest[32]{};
+        DWORD digest_length = sizeof(digest);
+        if (CryptGetHashParam(hash, HP_HASHVAL, digest, &digest_length, 0) &&
+            digest_length == sizeof(digest)) {
+            static constexpr char kHex[] = "0123456789abcdef";
+            result.reserve(digest_length * 2);
+            for (const BYTE value : digest) {
+                result.push_back(kHex[value >> 4U]);
+                result.push_back(kHex[value & 0x0FU]);
             }
         }
     }
@@ -217,8 +212,35 @@ void label(HWND parent, const std::wstring& text, int x, int y, int width)
     if (provider != 0) {
         CryptReleaseContext(provider, 0);
     }
-    CloseHandle(file);
     return result;
+}
+
+[[nodiscard]] bool create_protected_copy(const std::wstring& path,
+                                         std::string_view bytes)
+{
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:P(A;;GR;;;SY)(A;;GR;;;BA)(A;;GR;;;IU)", SDDL_REVISION_1,
+            &descriptor, nullptr)) {
+        return false;
+    }
+    SECURITY_ATTRIBUTES attributes{};
+    attributes.nLength = sizeof(attributes);
+    attributes.lpSecurityDescriptor = descriptor;
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                              &attributes, CREATE_NEW,
+                              FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    LocalFree(descriptor);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    DWORD written = 0;
+    const BOOL ok = WriteFile(file, bytes.data(),
+                              static_cast<DWORD>(bytes.size()), &written,
+                              nullptr);
+    CloseHandle(file);
+    return ok != FALSE && written == bytes.size();
 }
 
 [[nodiscard]] std::wstring powershell_path()
@@ -230,7 +252,11 @@ void label(HWND parent, const std::wstring& text, int x, int y, int width)
     }
     const auto path = std::filesystem::path(directory) /
                       "WindowsPowerShell\\v1.0\\powershell.exe";
-    return std::filesystem::exists(path) ? path.wstring() : std::wstring{};
+    std::error_code error;
+    if (std::filesystem::exists(path, error) && !error) {
+        return path.wstring();
+    }
+    return {};
 }
 
 [[nodiscard]] std::wstring temporary_path(const wchar_t* suffix)
@@ -254,6 +280,7 @@ struct ScanState {
     HANDLE process{nullptr};
     std::wstring json_path;
     std::wstring progress_path;
+    std::wstring script_copy_path;
     ScanSummary summary;
     ProgressCollector collector;
 };
@@ -286,6 +313,10 @@ void finish_scan(HWND window)
         g_scan.process = nullptr;
     }
     KillTimer(window, 1);
+    if (!g_scan.script_copy_path.empty()) {
+        { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
+        g_scan.script_copy_path.clear();
+    }
     EnableWindow(GetDlgItem(window, kScanStart), TRUE);
     EnableWindow(GetDlgItem(window, kScanClose), TRUE);
 
@@ -407,14 +438,27 @@ LRESULT CALLBACK scan_proc(HWND window,
                     return 0;
                 }
                 const auto script = installer_script_path();
-                if (!std::filesystem::exists(script) ||
-                    file_sha256(script) != kInstallScriptSha256) {
+                std::string script_bytes;
+                if (!read_file_bytes(script, script_bytes) ||
+                    sha256_bytes(script_bytes) != kInstallScriptSha256) {
+                    show_message(window, widen(strings.scan_script_invalid),
+                                 MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+                // Bind the check and the elevated use to the same bytes. The
+                // copy has a DACL that a standard user cannot write to.
+                g_scan.script_copy_path = temporary_path(L"-install.ps1");
+                if (!create_protected_copy(g_scan.script_copy_path,
+                                           script_bytes)) {
+                    g_scan.script_copy_path.clear();
                     show_message(window, widen(strings.scan_script_invalid),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
                 }
                 const auto powershell = powershell_path();
                 if (powershell.empty()) {
+                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
+                    g_scan.script_copy_path.clear();
                     show_message(window, widen(strings.scan_elevation),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
@@ -488,7 +532,7 @@ LRESULT CALLBACK scan_proc(HWND window,
                     narrow_text(g_scan.progress_path));
                 std::wstring parameters =
                     L"-NoProfile -ExecutionPolicy Bypass -File " +
-                    quote_windows_argument(script);
+                    quote_windows_argument(g_scan.script_copy_path);
                 for (const auto& argument : arguments) {
                     parameters += L" " + quote_windows_argument(widen(argument));
                 }
@@ -501,11 +545,15 @@ LRESULT CALLBACK scan_proc(HWND window,
                 info.lpParameters = parameters.c_str();
                 info.nShow = SW_HIDE;
                 if (!ShellExecuteExW(&info)) {
+                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
+                    g_scan.script_copy_path.clear();
                     show_message(window, widen(strings.scan_elevation),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
                 }
                 if (info.hProcess == nullptr) {
+                    { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
+                    g_scan.script_copy_path.clear();
                     show_message(window, widen(strings.scan_elevation),
                                  MB_OK | MB_ICONWARNING);
                     return 0;
@@ -549,6 +597,10 @@ LRESULT CALLBACK scan_proc(HWND window,
         if (g_scan.process != nullptr) {
             CloseHandle(g_scan.process);
             g_scan.process = nullptr;
+        }
+        if (!g_scan.script_copy_path.empty()) {
+            { std::error_code ignored; std::filesystem::remove(g_scan.script_copy_path, ignored); }
+            g_scan.script_copy_path.clear();
         }
         KillTimer(window, 1);
         g_scan.window = nullptr;

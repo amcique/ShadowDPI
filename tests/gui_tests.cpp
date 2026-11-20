@@ -118,7 +118,20 @@ int main()
     CHECK(collector.consume(
               "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n")
               .empty());
-    CHECK(collector.consume("partial\n").empty());
+    sdp::gui::ProgressCollector partial_collector;
+    CHECK(partial_collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
+              "partial\n"
+              "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n")
+              .size() == 1);
+    CHECK(partial_collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
+              "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n")
+              .size() == 1);
+    CHECK(partial_collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
+              "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n")
+              .empty());
     const auto pending = collector.consume(
         "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
         "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n");
