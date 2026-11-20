@@ -104,6 +104,30 @@ int main()
     CHECK(sdp::gui::parse_scan_summary("{}").has_value());
     CHECK(!sdp::gui::parse_scan_summary("broken").has_value());
 
+    const auto mixed_summary = sdp::gui::parse_scan_summary(
+        "{\"recommended\":{\"name\":\"preset 9\",\"args\":[\"-9\",7]}}");
+    CHECK(mixed_summary.has_value());
+    if (mixed_summary) {
+        CHECK(mixed_summary->recommendation.args.size() == 1);
+    }
+
+    sdp::gui::ProgressCollector collector;
+    CHECK(collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n")
+              .size() == 1);
+    CHECK(collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n")
+              .empty());
+    CHECK(collector.consume("partial\n").empty());
+    const auto pending = collector.consume(
+        "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
+        "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n");
+    CHECK(pending.size() >= 1);
+    CHECK(collector.consume(
+              "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
+              "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n")
+              .empty());
+
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

@@ -54,4 +54,14 @@ struct ScanSummary {
 [[nodiscard]] std::optional<ScanSummary> parse_scan_summary(
     std::string_view text);
 
+/// Tracks which progress lines have already been consumed. Malformed or
+/// partially written lines are retried on the next pass.
+class ProgressCollector {
+public:
+    [[nodiscard]] std::vector<ProgressEntry> consume(std::string_view text);
+
+private:
+    std::size_t seen_lines_{0};
+};
+
 } // namespace sdp::gui

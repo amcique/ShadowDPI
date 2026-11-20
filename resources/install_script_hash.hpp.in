@@ -1,0 +1,7 @@
+#pragma once
+
+namespace sdp::gui {
+
+inline constexpr char kInstallScriptSha256[] = "@SHADOWDPI_INSTALL_SCRIPT_SHA256@";
+
+} // namespace sdp::gui

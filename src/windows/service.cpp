@@ -371,10 +371,15 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         write_journal("configuration taken from service command line");
     }
     const auto blacklist = sdp::ipc::default_blacklist_path();
-    if (std::filesystem::exists(blacklist)) {
+    std::error_code filesystem_error;
+    if (std::filesystem::exists(blacklist, filesystem_error)) {
         effective_arguments.push_back("--blacklist");
         effective_arguments.push_back(blacklist.string());
         write_journal("using saved blacklist");
+    }
+    else if (filesystem_error) {
+        write_journal("cannot check saved blacklist: " +
+                      filesystem_error.message());
     }
     g_effective_arguments = effective_arguments;
 

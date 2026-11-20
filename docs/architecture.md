@@ -66,7 +66,8 @@ ACL in a later phase; today the file is created with the default ACL of
 The saved blacklist lives at `%ProgramData%\ShadowDPI\blacklist.txt`. The
 service validates it with `Blacklist::load()` before replacing it and adds
 `--blacklist <path>` to the startup arguments on the next start. Both files are
-service-owned; the GUI reaches them only through IPC.
+service-owned; the GUI writes them through IPC and only reads the blacklist
+file directly to populate its editor.
 
 ## Testing
 

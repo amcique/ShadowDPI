@@ -233,6 +233,16 @@ target_link_options(shadowdpi PRIVATE
 # ---------------------------------------------------------------------------
 # Tray GUI: unprivileged front end over the service IPC.
 # ---------------------------------------------------------------------------
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/install.ps1")
+file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/install.ps1"
+     SHADOWDPI_INSTALL_SCRIPT_SHA256)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/install_script_hash.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/install_script_hash.hpp"
+    @ONLY
+)
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/resources/shadowdpi-gui.exe.manifest.in"
     "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.exe.manifest"
@@ -268,11 +278,13 @@ add_executable(shadowdpi_gui WIN32
 target_include_directories(shadowdpi_gui PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gui"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
+    "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
 target_link_libraries(shadowdpi_gui PRIVATE
     shadowdpi_ipc
     shell32
+    crypt32
 )
 
 set_target_properties(shadowdpi_gui PROPERTIES OUTPUT_NAME "shadowdpi-gui")

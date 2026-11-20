@@ -44,10 +44,11 @@ struct Strings {
     std::string_view scan_no_result;
     std::string_view apply_recommended;
     std::string_view scan_elevation;
+    std::string_view scan_script_invalid;
+    std::string_view scan_in_progress;
     std::string_view blacklist_title;
     std::string_view blacklist_hint;
     std::string_view save;
-    std::string_view blacklist_saved;
     std::string_view dns_title;
     std::string_view dns_v4_label;
     std::string_view dns_v6_label;

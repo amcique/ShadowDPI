@@ -82,8 +82,10 @@ std::optional<ScanSummary> parse_scan_summary(std::string_view text)
                 recommended.value("regressions", 0);
             for (const auto& argument :
                  recommended.value("args", nlohmann::json::array())) {
-                summary.recommendation.args.push_back(
-                    argument.get<std::string>());
+                if (argument.is_string()) {
+                    summary.recommendation.args.push_back(
+                        argument.get<std::string>());
+                }
             }
         }
         return summary;
@@ -91,6 +93,38 @@ std::optional<ScanSummary> parse_scan_summary(std::string_view text)
     catch (...) {
         return std::nullopt;
     }
+}
+
+std::vector<ProgressEntry> ProgressCollector::consume(std::string_view text)
+{
+    std::vector<ProgressEntry> result;
+    std::size_t ordinal = 0;
+    std::size_t position = 0;
+    while (position < text.size()) {
+        const auto newline = text.find('\n', position);
+        const auto length = newline == std::string_view::npos
+                                ? text.size() - position
+                                : newline - position;
+        const auto line = text.substr(position, length);
+        position += length + (newline == std::string_view::npos ? 0 : 1);
+
+        if (line.empty()) {
+            continue;
+        }
+        const bool already_seen = ordinal++ < seen_lines_;
+        if (already_seen) {
+            continue;
+        }
+        const auto entry = parse_progress_line(line);
+        if (!entry) {
+            // A line may be only partially written. Retry it next pass and
+            // keep later lines pending so entries stay ordered and unique.
+            break;
+        }
+        result.push_back(*entry);
+        ++seen_lines_;
+    }
+    return result;
 }
 
 } // namespace sdp::gui
