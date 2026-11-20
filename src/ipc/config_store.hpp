@@ -8,6 +8,7 @@
 namespace sdp::ipc {
 
 [[nodiscard]] std::filesystem::path default_config_path();
+[[nodiscard]] std::filesystem::path default_blacklist_path();
 
 [[nodiscard]] bool save_config(const std::filesystem::path& path,
                                const std::vector<std::string>& arguments,

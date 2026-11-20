@@ -26,6 +26,34 @@ struct Strings {
     std::string_view stop_requested;
     std::string_view stop_failed;
     std::string_view parse_error;
+
+    std::string_view scan_menu;
+    std::string_view blacklist_menu;
+    std::string_view dns_menu;
+    std::string_view advanced_menu;
+    std::string_view scan_title;
+    std::string_view urls_label;
+    std::string_view url_file_label;
+    std::string_view level_label;
+    std::string_view protocols_label;
+    std::string_view ip_label;
+    std::string_view timeout_label;
+    std::string_view dns_label;
+    std::string_view start_scan;
+    std::string_view scan_progress;
+    std::string_view scan_no_result;
+    std::string_view apply_recommended;
+    std::string_view scan_elevation;
+    std::string_view blacklist_title;
+    std::string_view blacklist_hint;
+    std::string_view save;
+    std::string_view blacklist_saved;
+    std::string_view dns_title;
+    std::string_view dns_v4_label;
+    std::string_view dns_v6_label;
+    std::string_view advanced_title;
+    std::string_view advanced_hint;
+    std::string_view apply;
 };
 
 [[nodiscard]] const Strings& english();

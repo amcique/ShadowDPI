@@ -125,6 +125,9 @@ Port for DnsV6Addr. Defaults to 53.
 .PARAMETER Json
 Write the complete result set to this file as UTF-8 without a BOM.
 
+.PARAMETER ProgressFile
+Append one JSON line per completed strategy to this file, for live progress.
+
 .PARAMETER MaxStrategies
 Limit the number of candidates. 0 keeps the whole matrix.
 
@@ -195,6 +198,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$DnsV6Port = 53,
     [string]$Json = '',
+    [string]$ProgressFile = '',
     [ValidateRange(0, 2147483647)]
     [int]$MaxStrategies = 0,
     [ValidateRange(0, 5000)]
@@ -2887,6 +2891,17 @@ function Invoke-Scan {
         }
     }
 
+    $progressPath = ''
+    if ($ProgressFile) {
+        try {
+            $progressPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProgressFile)
+        }
+        catch {
+            throw "invalid progress path: $ProgressFile"
+        }
+        [IO.File]::WriteAllText($progressPath, '', (New-Object System.Text.UTF8Encoding($false)))
+    }
+
     $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
     if ($null -eq $curlCommand) {
         throw 'curl.exe was not found in PATH. Windows 10 and later include it.'
@@ -2948,6 +2963,20 @@ function Invoke-Scan {
     for ($index = 0; $index -lt $strategies.Count; $index++) {
         $result = Invoke-Strategy -Strategy $strategies[$index] -Index $index -TotalStrategies $strategies.Count -ExePath $exePath -Curl $curlPath -Probes $probes -BaselineResults $baselineResults -TimeoutSec $TimeoutSec -StartupTimeoutSec $StartupTimeoutSec -ProbeRepeats $probeRepeats -IpVersion $IpVersion -SettleMs $SettleMs -WorkRoot $script:WorkRoot
         $results += $result
+        if ($progressPath) {
+            $progress = [pscustomobject]@{
+                index         = $index
+                total         = $strategies.Count
+                name          = $result.Name
+                verdict       = $result.Verdict
+                targetsPassed = $result.TargetsPassed
+                targetTotal   = $result.TargetTotal
+                regressions   = $result.Regressions
+            }
+            [IO.File]::AppendAllText($progressPath,
+                ($progress | ConvertTo-Json -Compress) + "`n",
+                (New-Object System.Text.UTF8Encoding($false)))
+        }
     }
 
     $sorted = @(Write-Results -Results $results)

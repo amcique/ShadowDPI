@@ -23,7 +23,10 @@ enum class MessageType : std::uint16_t {
     GetLog,
     Response,
     Error,
+    WriteBlacklist,
 };
+
+inline constexpr MessageType kLastMessage = MessageType::WriteBlacklist;
 
 struct Request {
     std::uint32_t pid{0};

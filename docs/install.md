@@ -234,11 +234,13 @@ release folder untouched. Non-interactive uninstall requires `-Force`:
 | `-NoStart` | Leave the service stopped after install, upgrade, or reconfigure. |
 | `-SourcePath <path>` | Folder containing `shadowdpi.exe` and the WinDivert files. Defaults to the folder containing `install.ps1`. |
 | `-Quiet` | Do not ask configuration questions. Use explicit parameters and defaults. |
+| `-Silent` | Suppress console output and confirmation prompts. Combine with `-Force` for unattended uninstalls. |
+| `-LogPath <path>` | Write a timestamped install log. Defaults to `%ProgramData%\ShadowDPI\logs\install.log`. |
 | `-Force` | Skip confirmation prompts. Required for non-interactive uninstall. |
 
 All scanner parameters, such as `-ScanLevel`, `-Urls`, `-UrlFile`, `-Exe`,
-`-DnsResolver`, `-DnsAddr`, and `-Json`, are accepted together with
-`-Action scan` or the menu scan choice.
+`-DnsResolver`, `-DnsAddr`, `-Json`, and `-ProgressFile` are accepted together
+with `-Action scan` or the menu scan choice.
 
 ## install.json
 

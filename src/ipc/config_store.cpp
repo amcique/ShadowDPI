@@ -132,7 +132,9 @@ void append_escaped(std::string& out, unsigned char value)
 
 } // namespace
 
-std::filesystem::path default_config_path()
+namespace {
+
+[[nodiscard]] std::filesystem::path shadowdpi_data_path()
 {
     constexpr DWORD kBufferSize = 4096;
     char buffer[kBufferSize]{};
@@ -141,7 +143,19 @@ std::filesystem::path default_config_path()
     const std::string base = length > 0 && length < kBufferSize
                                  ? std::string(buffer, length)
                                  : std::string("C:\\ProgramData");
-    return std::filesystem::path(base) / "ShadowDPI" / "config.json";
+    return std::filesystem::path(base) / "ShadowDPI";
+}
+
+} // namespace
+
+std::filesystem::path default_config_path()
+{
+    return shadowdpi_data_path() / "config.json";
+}
+
+std::filesystem::path default_blacklist_path()
+{
+    return shadowdpi_data_path() / "blacklist.txt";
 }
 
 bool save_config(const std::filesystem::path& path,

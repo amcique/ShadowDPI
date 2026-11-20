@@ -54,7 +54,8 @@ budur:
 ```
 
 İsteğe bağlı bir tepsi arayüzü de vardır: `.\shadowdpi-gui.exe`. Yönetici
-hakları olmadan çalışır ve hizmeti IPC üzerinden yönetir. Ayrıntılar:
+hakları olmadan çalışır ve hizmeti IPC üzerinden yönetir. Strateji tarayıcı
+sihirbazı ile hazır ayar, kara liste ve DNS düzenleyicileri içerir. Ayrıntılar:
 [docs/gui.md](docs/gui.md).
 
 Sağlayıcı DNS yanıtlarını zehirliyorsa tarayıcıda güvenli DNS'i açın veya DNS'i

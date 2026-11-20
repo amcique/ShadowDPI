@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <iostream>
 #include <string>
 
 #include "presets.hpp"
+#include "scan.hpp"
 #include "strings.hpp"
 
 namespace {
@@ -49,6 +51,58 @@ int main()
     CHECK(!strings.open_dashboard.empty());
     CHECK(!strings.emergency_stop.empty());
     CHECK(!strings.dashboard_title.empty());
+
+    sdp::gui::ScanOptions options;
+    options.urls.push_back("example.com");
+    options.url_file = "C:\\urls.txt";
+    options.scan_level = "quick";
+    options.dns_addr = "1.1.1.1";
+    const auto arguments = sdp::gui::build_scan_arguments(
+        options, "C:\\temp\\result.json", "C:\\temp\\progress.jsonl");
+    CHECK(arguments.size() > 10);
+    CHECK(arguments[0] == "-Action");
+    CHECK(arguments[1] == "scan");
+    CHECK(std::find(arguments.begin(), arguments.end(), "-Json") !=
+          arguments.end());
+    CHECK(std::find(arguments.begin(), arguments.end(), "quick") !=
+          arguments.end());
+    CHECK(std::find(arguments.begin(), arguments.end(), "1.1.1.1") !=
+          arguments.end());
+    options.dns_addr.clear();
+    const auto system_dns = sdp::gui::build_scan_arguments(
+        options, "C:\\temp\\result.json", "C:\\temp\\progress.jsonl");
+    CHECK(std::find(system_dns.begin(), system_dns.end(), "-DnsResolver") !=
+          system_dns.end());
+    CHECK(std::find(system_dns.begin(), system_dns.end(), "system") !=
+          system_dns.end());
+
+    const auto progress = sdp::gui::parse_progress_line(
+        "{\"index\":1,\"total\":9,\"name\":\"preset 2\","
+        "\"verdict\":\"pass\",\"targetsPassed\":3,\"targetTotal\":3,"
+        "\"regressions\":0}");
+    CHECK(progress.has_value());
+    if (progress) {
+        CHECK(progress->index == 1);
+        CHECK(progress->total == 9);
+        CHECK(progress->verdict == "pass");
+        CHECK(progress->targets_passed == 3);
+    }
+    CHECK(!sdp::gui::parse_progress_line("not json").has_value());
+
+    const auto summary = sdp::gui::parse_scan_summary(
+        "{\"generatedUtc\":\"2026-11-20T00:00:00Z\",\"targetsBlocked\":3,"
+        "\"recommended\":{\"name\":\"preset 9\",\"args\":[\"-9\"],"
+        "\"targetsPassed\":3,\"targetTotal\":3,\"regressions\":0}}");
+    CHECK(summary.has_value());
+    if (summary) {
+        CHECK(summary->targets_blocked == 3);
+        CHECK(summary->has_recommendation);
+        CHECK(summary->recommendation.name == "preset 9");
+        CHECK(summary->recommendation.args.size() == 1);
+        CHECK(summary->recommendation.args[0] == "-9");
+    }
+    CHECK(sdp::gui::parse_scan_summary("{}").has_value());
+    CHECK(!sdp::gui::parse_scan_summary("broken").has_value());
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";

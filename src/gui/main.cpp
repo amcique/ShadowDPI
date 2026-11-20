@@ -8,9 +8,13 @@
 #include <nlohmann/json.hpp>
 
 #include "shadowdpi/ipc.hpp"
-#include "ipc_pipe.hpp"
+#include "dialogs.hpp"
+#include "gui_ipc.hpp"
 #include "presets.hpp"
 #include "strings.hpp"
+
+using sdp::gui::send_request;
+using sdp::gui::widen;
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -29,6 +33,10 @@ constexpr int kMenuDashboard = 1001;
 constexpr int kMenuPresets = 2000;
 constexpr int kMenuStop = 3001;
 constexpr int kMenuExit = 3002;
+constexpr int kMenuScan = 3010;
+constexpr int kMenuBlacklist = 3011;
+constexpr int kMenuDns = 3012;
+constexpr int kMenuAdvanced = 3013;
 constexpr int kDashboardRefresh = 4001;
 constexpr int kDashboardClose = 4002;
 
@@ -53,41 +61,6 @@ struct StatusSnapshot {
 
 std::mutex g_status_mutex;
 StatusSnapshot g_status_snapshot;
-
-[[nodiscard]] std::wstring widen(std::string_view text)
-{
-    if (text.empty()) {
-        return {};
-    }
-    const int length = MultiByteToWideChar(CP_UTF8, 0, text.data(),
-                                           static_cast<int>(text.size()),
-                                           nullptr, 0);
-    std::wstring result(static_cast<std::size_t>(length), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(),
-                        static_cast<int>(text.size()), result.data(),
-                        length);
-    return result;
-}
-
-[[nodiscard]] bool send_request(sdp::ipc::MessageType type,
-                                const std::vector<std::byte>& payload,
-                                std::string& response_text,
-                                std::string& error)
-{
-    auto client = sdp::ipc::IpcClient::connect("shadowdpi", error);
-    if (!client) {
-        return false;
-    }
-    sdp::ipc::MessageType response_type{};
-    const auto response = client->round_trip(
-        sdp::ipc::Request{GetCurrentProcessId(), type, payload},
-        response_type, error);
-    if (!response) {
-        return false;
-    }
-    response_text = response->message;
-    return response->ok;
-}
 
 void update_tray(std::string_view text)
 {
@@ -231,6 +204,13 @@ void show_tray_menu()
     HMENU menu = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING, kMenuDashboard,
                 widen(strings.open_dashboard).c_str());
+    AppendMenuW(menu, MF_STRING, kMenuScan, widen(strings.scan_menu).c_str());
+    AppendMenuW(menu, MF_STRING, kMenuBlacklist,
+                widen(strings.blacklist_menu).c_str());
+    AppendMenuW(menu, MF_STRING, kMenuDns, widen(strings.dns_menu).c_str());
+    AppendMenuW(menu, MF_STRING, kMenuAdvanced,
+                widen(strings.advanced_menu).c_str());
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
     HMENU presets = CreatePopupMenu();
     for (std::size_t index = 0; index < g_presets.size(); ++index) {
@@ -384,6 +364,18 @@ LRESULT CALLBACK tray_proc(HWND window,
             break;
         case kMenuStop:
             request_stop();
+            break;
+        case kMenuScan:
+            sdp::gui::show_scan_wizard(g_window);
+            break;
+        case kMenuBlacklist:
+            sdp::gui::show_blacklist_editor(g_window);
+            break;
+        case kMenuDns:
+            sdp::gui::show_dns_editor(g_window);
+            break;
+        case kMenuAdvanced:
+            sdp::gui::show_advanced_editor(g_window);
             break;
         case kMenuExit:
             Shell_NotifyIconW(NIM_DELETE, &g_tray);

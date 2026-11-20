@@ -257,7 +257,10 @@ configure_file(
 
 add_executable(shadowdpi_gui WIN32
     src/gui/main.cpp
+    src/gui/dialogs.cpp
+    src/gui/gui_ipc.cpp
     src/gui/presets.cpp
+    src/gui/scan.cpp
     src/gui/strings.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.rc"
 )
@@ -385,10 +388,12 @@ if(SHADOWDPI_BUILD_TESTS)
 
     add_executable(shadowdpi_gui_tests tests/gui_tests.cpp
         src/gui/presets.cpp
+        src/gui/scan.cpp
         src/gui/strings.cpp
     )
     target_include_directories(shadowdpi_gui_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/gui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
     )
     target_compile_features(shadowdpi_gui_tests PRIVATE cxx_std_20)
     target_compile_options(shadowdpi_gui_tests PRIVATE

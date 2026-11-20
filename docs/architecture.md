@@ -34,13 +34,14 @@ the handshake is informational and is never used as a credential.
 
 Commands:
 
-| Command | Phase 0 status |
+| Command | Status |
 |---|---|
 | `Handshake` | implemented, returns protocol version and caller PID |
 | `GetStatus` | implemented, returns service state, exit code, checkpoint, PID |
 | `ApplyConfig` | implemented, validates through `parse_cli()` and persists to `config.json`; takes effect after restart |
 | `Stop` | implemented, requests shutdown through `ShutdownCoordinator` |
 | `GetLog` | implemented, returns the recent service journal as JSON |
+| `WriteBlacklist` | implemented, validates and saves `%ProgramData%\ShadowDPI\blacklist.txt` |
 | `Start`, `RunScan` | reserved, return an explicit "not available in this phase" error |
 
 The GUI requests a stop through the IPC `Stop` command. Starting a stopped
@@ -61,6 +62,11 @@ Writes use a temporary file and a rename, so an interrupted update cannot leave
 a half-written config. The installer is responsible for setting the directory
 ACL in a later phase; today the file is created with the default ACL of
 `ProgramData`.
+
+The saved blacklist lives at `%ProgramData%\ShadowDPI\blacklist.txt`. The
+service validates it with `Blacklist::load()` before replacing it and adds
+`--blacklist <path>` to the startup arguments on the next start. Both files are
+service-owned; the GUI reaches them only through IPC.
 
 ## Testing
 

@@ -65,7 +65,7 @@ void put_u32(std::vector<std::byte>& out, std::uint32_t value)
     }
     if (magic != kIpcMagic || version != kIpcVersion ||
         raw_type < static_cast<std::uint16_t>(MessageType::Handshake) ||
-        raw_type > static_cast<std::uint16_t>(MessageType::Error)) {
+        raw_type > static_cast<std::uint16_t>(kLastMessage)) {
         return false;
     }
     type = static_cast<MessageType>(raw_type);
@@ -81,6 +81,7 @@ bool requires_privilege(MessageType type) noexcept
     case MessageType::Start:
     case MessageType::Stop:
     case MessageType::RunScan:
+    case MessageType::WriteBlacklist:
         return true;
     default:
         return false;

@@ -194,6 +194,7 @@ void test_authorization()
     CHECK(requires_privilege(MessageType::ApplyConfig));
     CHECK(requires_privilege(MessageType::Stop));
     CHECK(requires_privilege(MessageType::RunScan));
+    CHECK(requires_privilege(MessageType::WriteBlacklist));
     CHECK(!requires_privilege(MessageType::Handshake));
     CHECK(!requires_privilege(MessageType::GetStatus));
     CHECK(!requires_privilege(MessageType::GetLog));

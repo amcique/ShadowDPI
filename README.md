@@ -55,7 +55,8 @@ most providers:
 ```
 
 An optional tray GUI is also available: `.\shadowdpi-gui.exe`. It runs without
-Administrator rights and controls the service over IPC. See
+Administrator rights and controls the service over IPC. It includes a strategy
+scanner wizard and editors for presets, blacklists and DNS resolvers. See
 [docs/gui.md](docs/gui.md).
 
 If the provider poisons DNS answers, either enable secure DNS in the browser or

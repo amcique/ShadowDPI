@@ -135,6 +135,7 @@ want a shorter run.
 | `-DnsV6Addr <ipv6>` | Skip the menu and add `--dnsv6-addr` to every candidate. |
 | `-DnsV6Port <port>` | Port for `-DnsV6Addr`. Defaults to `53`. |
 | `-Json <path>` | Write the complete results as UTF-8 JSON without a BOM. |
+| `-ProgressFile <path>` | Append one JSON line per completed strategy, for live progress in the GUI. |
 | `-MaxStrategies <n>` | Limit the number of candidates. `0` keeps all. |
 | `-SettleMs <n>` | Delay after the ready file appears before probing. Defaults to `200`. |
 | `-NoDnsFlush` | Skip `ipconfig /flushdns` before the baseline. |

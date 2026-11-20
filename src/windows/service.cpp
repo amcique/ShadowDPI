@@ -3,6 +3,8 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -15,6 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "shadowdpi/blacklist.hpp"
 #include "shadowdpi/cli.hpp"
 #include "shadowdpi/ipc.hpp"
 #include "application.hpp"
@@ -193,6 +196,61 @@ void report_status() noexcept
         response.message = "stop requested";
         break;
 
+    case MessageType::WriteBlacklist:
+        {
+            std::string text;
+            text.reserve(request.payload.size());
+            for (const auto byte : request.payload) {
+                text.push_back(static_cast<char>(
+                    std::to_integer<unsigned char>(byte)));
+            }
+            const auto target = sdp::ipc::default_blacklist_path();
+            const auto temporary = target.string() + ".tmp";
+            std::size_t entry_count = 0;
+            const std::string error = [&]() -> std::string {
+                try {
+                    std::filesystem::create_directories(target.parent_path());
+                    {
+                        std::ofstream file(temporary,
+                                           std::ios::binary |
+                                               std::ios::trunc);
+                        if (!file) {
+                            return "cannot create blacklist file";
+                        }
+                        file.write(text.data(),
+                                   static_cast<std::streamsize>(text.size()));
+                        file.flush();
+                        if (!file) {
+                            return "cannot write blacklist file";
+                        }
+                    }
+                    sdp::Blacklist blacklist;
+                    std::string load_error;
+                    if (!blacklist.load(temporary, load_error)) {
+                        return load_error;
+                    }
+                    entry_count = blacklist.size();
+                    std::filesystem::rename(temporary, target);
+                    return {};
+                }
+                catch (const std::exception& exception) {
+                    return exception.what();
+                }
+            }();
+            if (!error.empty()) {
+                std::error_code ignored;
+                std::filesystem::remove(temporary, ignored);
+                response.message = error;
+            }
+            else {
+                write_journal("blacklist saved via IPC, " +
+                              std::to_string(entry_count) + " entries");
+                response.ok = true;
+                response.message = "blacklist saved; restart required";
+            }
+        }
+        break;
+
     case MessageType::Start:
     case MessageType::RunScan:
         response.message = "not available in this phase";
@@ -311,6 +369,12 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
     }
     else {
         write_journal("configuration taken from service command line");
+    }
+    const auto blacklist = sdp::ipc::default_blacklist_path();
+    if (std::filesystem::exists(blacklist)) {
+        effective_arguments.push_back("--blacklist");
+        effective_arguments.push_back(blacklist.string());
+        write_journal("using saved blacklist");
     }
     g_effective_arguments = effective_arguments;
 
