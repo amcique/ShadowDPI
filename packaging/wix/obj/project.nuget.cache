@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "3uROEvnxa0U=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\nginx\\source\\repos\\ShadowDPI\\packaging\\wix\\ShadowDPI.wixproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\nginx\\.nuget\\packages\\wixtoolset.ui.wixext\\7.0.1\\wixtoolset.ui.wixext.7.0.1.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -1,0 +1,102 @@
+<!-- Dialog sequence based on WixUI_InstallDir.wxs from WiX v7.0.1, with a
+     service settings dialog inserted after the install folder dialog.
+     Original: Copyright (c) .NET Foundation and contributors.
+     Licensed under the Microsoft Reciprocal License. -->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="ShadowDPI_UI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="ARPNOMODIFY" Value="1" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="3" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="ServiceConfigDlg" Order="4" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SetTargetPath" Value="[_BrowseProperty]" Order="3" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="EndDialog" Value="Return" Order="4" />
+
+      <Publish Dialog="ServiceConfigDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" />
+      <Publish Dialog="ServiceConfigDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ServiceConfigDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <Dialog Id="ServiceConfigDlg" Width="370" Height="270" Title="ShadowDPI service settings">
+        <Control Id="Title" Type="Text" X="15" Y="12" Width="340" Height="16"
+                 Text="Configure the Windows service" />
+        <Control Id="Description" Type="Text" X="15" Y="34" Width="340" Height="32"
+                 Text="The service runs shadowdpi.exe with Administrator rights. The tray GUI never needs elevation." />
+
+        <Control Id="ServiceNameLabel" Type="Text" X="15" Y="78" Width="110" Height="16"
+                 Text="Service name:" />
+        <Control Id="ServiceNameEdit" Type="Edit" X="130" Y="75" Width="225" Height="18"
+                 Property="SERVICENAME" />
+
+        <Control Id="ServiceArgsLabel" Type="Text" X="15" Y="104" Width="110" Height="16"
+                 Text="Arguments:" />
+        <Control Id="ServiceArgsEdit" Type="Edit" X="130" Y="101" Width="225" Height="18"
+                 Property="SERVICEARGS" />
+
+        <Control Id="StartModeLabel" Type="Text" X="15" Y="130" Width="110" Height="16"
+                 Text="Start mode:" />
+        <Control Id="StartModeCombo" Type="ComboBox" X="130" Y="127" Width="225" Height="18"
+                 Property="SERVICESTARTMODE">
+          <ComboBox Property="SERVICESTARTMODE">
+            <ListItem Value="auto" Text="Automatic" />
+            <ListItem Value="demand" Text="Manual" />
+            <ListItem Value="disabled" Text="Disabled" />
+          </ComboBox>
+        </Control>
+
+        <Control Id="StartNow" Type="CheckBox" X="15" Y="160" Width="340" Height="18"
+                 Property="STARTATSERVICE" CheckBoxValue="1"
+                 Text="Start the service after installation" />
+
+        <Control Id="Back" Type="PushButton" X="120" Y="243" Width="56" Height="17"
+                 Text="Back" />
+        <Control Id="Next" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Default="yes" Text="Next" />
+        <Control Id="Cancel" Type="PushButton" X="240" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="Cancel">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>
