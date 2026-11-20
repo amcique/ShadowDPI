@@ -327,6 +327,8 @@ endif()
 
 # Ship the same payload as the release archive. Without this, cmake --install
 # produces executables but no installer script, documentation or tools.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/release-files.txt")
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/release-files.txt" SHADOWDPI_RELEASE_ENTRIES)
 foreach(entry IN LISTS SHADOWDPI_RELEASE_ENTRIES)
     string(STRIP "${entry}" entry)
