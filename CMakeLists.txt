@@ -271,6 +271,7 @@ add_executable(shadowdpi_gui WIN32
     src/gui/gui_ipc.cpp
     src/gui/presets.cpp
     src/gui/scan.cpp
+    src/gui/scan_command.cpp
     src/gui/strings.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/shadowdpi-gui.rc"
 )
@@ -401,6 +402,7 @@ if(SHADOWDPI_BUILD_TESTS)
     add_executable(shadowdpi_gui_tests tests/gui_tests.cpp
         src/gui/presets.cpp
         src/gui/scan.cpp
+        src/gui/scan_command.cpp
         src/gui/strings.cpp
     )
     target_include_directories(shadowdpi_gui_tests PRIVATE

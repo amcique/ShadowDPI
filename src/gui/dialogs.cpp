@@ -13,6 +13,7 @@
 #include "gui_ipc.hpp"
 #include "install_script_hash.hpp"
 #include "scan.hpp"
+#include "scan_command.hpp"
 #include "shadowdpi/ipc.hpp"
 #include "strings.hpp"
 
@@ -484,65 +485,27 @@ LRESULT CALLBACK scan_proc(HWND window,
                 auto arguments = build_scan_arguments(
                     options, narrow_text(g_scan.json_path),
                     narrow_text(g_scan.progress_path));
-                const auto ps_quote = [](std::wstring_view value) {
-                    std::wstring result{L'\''};
-                    for (const wchar_t character : value) {
-                        if (character == L'\'') {
-                            result += L"''";
-                        }
-                        else {
-                            result.push_back(character);
-                        }
-                    }
-                    result += L'\'';
-                    return result;
-                };
-                // The elevated process reads and hashes the bytes itself, then
-                // executes those same bytes from a scriptblock. Even a same-user
-                // racing process cannot substitute the script after UAC.
-                std::wstring command =
-                    L"$e=" +
-                    ps_quote(widen(std::string_view{kInstallScriptSha256})) +
-                    L";$p=" + ps_quote(script) +
-                    L";$b=[IO.File]::ReadAllBytes($p);"
-                    L"$m=New-Object IO.MemoryStream(,$b);"
-                    L"$h=(Get-FileHash -InputStream $m -Algorithm SHA256).Hash.ToLowerInvariant();"
-                    L"if($h -ne $e){exit 3};"
-                    L";$PSScriptRoot=Split-Path -Parent $p;"
-                    L"$t=[Text.Encoding]::UTF8.GetString($b);"
-                    L"$s=[ScriptBlock]::Create($t);& $s";
-                for (std::size_t index = 0; index < arguments.size();
-                     ++index) {
-                    const auto& argument = arguments[index];
-                    if (!argument.empty() && argument[0] == '-') {
-                        command += L" " + widen(argument);
-                        if (argument == "-Urls" &&
-                            index + 1 < arguments.size()) {
-                            std::wstring array;
-                            const auto& value = arguments[++index];
-                            std::size_t start = 0;
-                            while (start < value.size()) {
-                                const auto comma = value.find(',', start);
-                                const auto length =
-                                    comma == std::string::npos
-                                        ? value.size() - start
-                                        : comma - start;
-                                if (!array.empty()) {
-                                    array += L"','";
-                                }
-                                array += ps_quote(widen(std::string_view(
-                                    value.data() + start, length)));
-                                if (comma == std::string::npos) {
-                                    break;
-                                }
-                                start = comma + 1;
-                            }
-                            command += L" '" + array + L"'";
-                        }
-                        continue;
-                    }
-                    command += L" " + ps_quote(widen(argument));
+                // A ScriptBlock has no $PSScriptRoot, so give the installer
+                // absolute paths for the executable and the default URL list.
+                const auto script_directory =
+                    std::filesystem::path(script).parent_path();
+                arguments.push_back("-Exe");
+                arguments.push_back(narrow_text(
+                    (script_directory / "shadowdpi.exe").wstring()));
+                if (options.urls.empty() && options.url_file.empty()) {
+                    arguments.push_back("-UrlFile");
+                    arguments.push_back(narrow_text(
+                        (script_directory / "tools\\scan-urls.txt").wstring()));
                 }
+
+                std::vector<std::wstring> wide_arguments;
+                wide_arguments.reserve(arguments.size());
+                for (const auto& argument : arguments) {
+                    wide_arguments.push_back(widen(argument));
+                }
+                const auto command = build_elevated_command(
+                    widen(std::string_view{kInstallScriptSha256}), script,
+                    wide_arguments);
                 std::wstring parameters =
                     L"-NoProfile -ExecutionPolicy Bypass -Command " +
                     quote_windows_argument(command);

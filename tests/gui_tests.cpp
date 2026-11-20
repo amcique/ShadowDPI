@@ -4,6 +4,7 @@
 
 #include "presets.hpp"
 #include "scan.hpp"
+#include "scan_command.hpp"
 #include "strings.hpp"
 
 namespace {
@@ -143,6 +144,16 @@ int main()
               "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n"
               "{\"index\":1,\"name\":\"preset 2\",\"verdict\":\"fail\"}\n")
               .empty());
+
+    const auto command = sdp::gui::build_elevated_command(
+        L"abc123", L"C:\\Tools\\ShadowDPI\\install.ps1",
+        {L"-Action", L"scan", L"-Urls", L"example.com,b.com", L"-Silent"});
+    CHECK(command.find(L"-Action 'scan'") != std::wstring::npos);
+    CHECK(command.find(L"'-Action'") == std::wstring::npos);
+    CHECK(command.find(L"-Urls 'example.com','b.com'") !=
+          std::wstring::npos);
+    CHECK(command.find(L"'abc123'") != std::wstring::npos);
+    CHECK(command.find(L"[ScriptBlock]::Create($t)") != std::wstring::npos);
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
