@@ -468,7 +468,7 @@ LRESULT CALLBACK scan_proc(HWND window,
                 try {
                     const auto entered = std::stoi(narrow_text(
                         window_text(window, kScanTimeout)));
-                    if (entered >= 1 && entered <= 3600) {
+                    if (entered >= 1 && entered <= 120) {
                         options.timeout_sec = entered;
                     }
                     else {

@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
 Installs, upgrades, reconfigures, removes, and scans ShadowDPI.
@@ -1594,6 +1594,23 @@ function Copy-InstallPayload {
     return $payload
 }
 
+function New-ScanOutputFile {
+    param([string]$Path)
+
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $item = Get-Item -LiteralPath $Path -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing to write through a symbolic link: $Path"
+        }
+        Remove-Item -LiteralPath $Path -Force
+    }
+    return [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::Read)
+}
+
 function Backup-InstallFolder {
     param([string]$Path)
 
@@ -1617,7 +1634,9 @@ function Restore-InstallFolder {
     if (Test-Path -LiteralPath $Path -PathType Container) {
         Get-ChildItem -LiteralPath $Path -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
-    Copy-Item -LiteralPath (Join-Path $Backup '*') -Destination $Path -Recurse -Force -ErrorAction SilentlyContinue
+    # -Path (not -LiteralPath) is required so the wildcard expands. Copying the
+    # directory itself would nest it one level too deep under $Path.
+    Copy-Item -Path (Join-Path $Backup '*') -Destination $Path -Recurse -Force -ErrorAction Stop
     Remove-Item -LiteralPath $Backup -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -2979,11 +2998,7 @@ function Invoke-Scan {
         # Keep an exclusive handle open for the whole run. The path lives in
         # %TEMP%, which the non-elevated caller can write to, so a plain
         # WriteAllText/AppendAllText pair could follow a substituted symlink.
-        $progressStream = [IO.File]::Open(
-            $progressPath,
-            [IO.FileMode]::CreateNew,
-            [IO.FileAccess]::Write,
-            [IO.FileShare]::Read)
+        $progressStream = New-ScanOutputFile -Path $progressPath
     }
 
     $curlCommand = Get-Command curl.exe -ErrorAction SilentlyContinue
@@ -3126,11 +3141,7 @@ function Invoke-Scan {
 
     if ($Json) {
         $jsonText = $summary | ConvertTo-Json -Depth 10
-        $jsonStream = [IO.File]::Open(
-            $jsonPath,
-            [IO.FileMode]::CreateNew,
-            [IO.FileAccess]::Write,
-            [IO.FileShare]::Read)
+        $jsonStream = New-ScanOutputFile -Path $jsonPath
         try {
             $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($jsonText)
             $jsonStream.Write($bytes, 0, $bytes.Length)
@@ -3724,10 +3735,12 @@ function Invoke-UninstallAction {
 
     if ($removedSomething) {
         Remove-UninstallRegistration
+        Write-Info 'ShadowDPI was removed.'
+        # Remove the log last: Write-Info above appends to it, so deleting it
+        # earlier would be undone by the final log write.
         if ($script:LogFile -and (Test-Path -LiteralPath $script:LogFile -PathType Leaf)) {
             Remove-Item -LiteralPath $script:LogFile -Force -ErrorAction SilentlyContinue
         }
-        Write-Info 'ShadowDPI was removed.'
     }
     else {
         Write-Info 'Nothing was removed.'
@@ -3849,23 +3862,23 @@ function Invoke-InteractiveMenu {
             if ($state.Exists) {
                 switch ($choice) {
                     '1' {
-                        [void](Invoke-InstallAction -Mode install -AssumeYes)
+                        $menuExitCode = Invoke-InstallAction -Mode install -AssumeYes
                         $didAction = $true
                     }
                     '2' {
-                        [void](Invoke-InstallAction -Mode upgrade -AssumeYes)
+                        $menuExitCode = Invoke-InstallAction -Mode upgrade -AssumeYes
                         $didAction = $true
                     }
                     '3' {
-                        [void](Invoke-ReconfigureAction)
+                        $menuExitCode = Invoke-ReconfigureAction
                         $didAction = $true
                     }
                     '4' {
-                        [void](Invoke-RepairAction)
+                        $menuExitCode = Invoke-RepairAction
                         $didAction = $true
                     }
                     '5' {
-                        [void](Invoke-UninstallAction)
+                        $menuExitCode = Invoke-UninstallAction
                         $didAction = $true
                     }
                     '6' {
@@ -3883,7 +3896,7 @@ function Invoke-InteractiveMenu {
             else {
                 switch ($choice) {
                     '1' {
-                        [void](Invoke-InstallAction -Mode install -AssumeYes)
+                        $menuExitCode = Invoke-InstallAction -Mode install -AssumeYes
                         $didAction = $true
                     }
                     '2' {
@@ -3898,21 +3911,24 @@ function Invoke-InteractiveMenu {
                     }
                 }
             }
-            # Preserve the exit code of a failing action (for example a scan
-            # that found no working strategy) until the next action succeeds.
-            if ($didAction -and $menuExitCode -ne 0) {
-                $actionFailed = $true
+            # Keep the last action's real exit code (a scan may return 2).
+            # A later successful action resets it to 0.
+            if ($didAction) {
+                if ($menuExitCode -eq 0) {
+                    $actionFailed = $false
+                }
+                else {
+                    $actionFailed = $true
+                }
             }
         }
         catch {
             Write-Warn ('error: ' + $_.Exception.Message)
             $menuExitCode = 1
+            $actionFailed = $true
         }
 
         if ($exit) {
-            if ($actionFailed) {
-                return 1
-            }
             return $menuExitCode
         }
 

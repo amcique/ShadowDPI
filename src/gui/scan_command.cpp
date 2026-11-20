@@ -33,7 +33,8 @@ namespace {
     static constexpr std::wstring_view kParameters[] = {
         L"-Action",        L"-ScanLevel",  L"-Protocols", L"-IpVersion",
         L"-TimeoutSec",    L"-Json",       L"-ProgressFile", L"-UrlFile",
-        L"-Urls",          L"-DnsAddr",    L"-DnsPort",   L"-DnsResolver"};
+        L"-Urls",          L"-DnsAddr",    L"-DnsPort",   L"-DnsResolver",
+        L"-Exe"};
     return std::find(std::begin(kParameters), std::end(kParameters), token) !=
            std::end(kParameters);
 }

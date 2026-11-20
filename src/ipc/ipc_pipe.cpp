@@ -28,7 +28,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
                               void* data,
                               DWORD length,
                               const std::atomic<bool>* stop = nullptr,
-                              int max_idle = 500) noexcept
+                              int max_idle = 100) noexcept
 {
     auto* bytes = static_cast<std::byte*>(data);
     DWORD received = 0;
@@ -90,7 +90,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 [[nodiscard]] std::vector<std::byte> read_frame(
     HANDLE handle,
     const std::atomic<bool>* stop = nullptr,
-    int max_idle = 500) noexcept
+    int max_idle = 100) noexcept
 {
     std::uint32_t raw_length = 0;
     if (!read_exact(handle, &raw_length, sizeof(raw_length), stop, max_idle)) {

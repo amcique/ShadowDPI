@@ -168,6 +168,15 @@ int main()
     CHECK(hostile.find(L" -9") == std::wstring::npos);
     CHECK(hostile.find(L"'-Silent'") == std::wstring::npos);
 
+    // -Exe is a real parameter and must be emitted bare with a quoted value.
+    const auto with_exe = sdp::gui::build_elevated_command(
+        L"abc123", L"C:\\Tools\\ShadowDPI\\install.ps1",
+        {L"-Action", L"scan", L"-Silent", L"-Exe",
+         L"C:\\Program Files\\ShadowDPI\\shadowdpi.exe"});
+    CHECK(with_exe.find(L"-Exe 'C:\\Program Files\\ShadowDPI\\shadowdpi.exe'") !=
+          std::wstring::npos);
+    CHECK(with_exe.find(L"'-Exe'") == std::wstring::npos);
+
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;
