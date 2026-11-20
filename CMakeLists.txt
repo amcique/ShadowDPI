@@ -301,7 +301,7 @@ if(WINDIVERT_SYS)
     )
 endif()
 
-install(TARGETS shadowdpi RUNTIME DESTINATION .)
+install(TARGETS shadowdpi shadowdpi_gui RUNTIME DESTINATION .)
 if(WINDIVERT_DLL)
     install(FILES "${WINDIVERT_DLL}" DESTINATION .)
 endif()
@@ -390,7 +390,6 @@ if(SHADOWDPI_BUILD_TESTS)
     target_include_directories(shadowdpi_gui_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/gui"
     )
-    target_link_libraries(shadowdpi_gui_tests PRIVATE shadowdpi_core)
     target_compile_features(shadowdpi_gui_tests PRIVATE cxx_std_20)
     target_compile_options(shadowdpi_gui_tests PRIVATE
         ${SHADOWDPI_WARNING_FLAGS}

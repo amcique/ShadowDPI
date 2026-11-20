@@ -81,7 +81,6 @@ bool requires_privilege(MessageType type) noexcept
     case MessageType::Start:
     case MessageType::Stop:
     case MessageType::RunScan:
-    case MessageType::GetLog:
         return true;
     default:
         return false;

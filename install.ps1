@@ -1536,6 +1536,11 @@ function Copy-InstallPayload {
             throw "$name was not installed in $DestinationPath."
         }
     }
+    if (Test-Path -LiteralPath (Join-Path $SourcePath 'shadowdpi-gui.exe') -PathType Leaf) {
+        if (-not (Test-Path -LiteralPath (Join-Path $DestinationPath 'shadowdpi-gui.exe') -PathType Leaf)) {
+            throw "shadowdpi-gui.exe was not installed in $DestinationPath."
+        }
+    }
 
     return $payload
 }

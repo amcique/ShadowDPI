@@ -29,6 +29,8 @@ int main()
         CHECK(!preset.description.empty());
         CHECK(!preset.name.empty());
         CHECK(preset.name[0] == '-');
+        CHECK(preset.name.size() == 2);
+        CHECK(preset.name[1] >= '1' && preset.name[1] <= '9');
     }
 
     const auto& first = presets.front();

@@ -21,7 +21,6 @@ const Strings& english()
         "Refresh",
         "Close",
         "Preset applied. Restart the service for it to take effect.",
-        "The service rejected the preset.",
         "Stop requested.",
         "The service refused the stop request.",
         "The service returned unreadable data.",

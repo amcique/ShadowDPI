@@ -27,7 +27,8 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 [[nodiscard]] bool read_exact(HANDLE handle,
                               void* data,
                               DWORD length,
-                              const std::atomic<bool>* stop = nullptr) noexcept
+                              const std::atomic<bool>* stop = nullptr,
+                              int max_idle = 500) noexcept
 {
     auto* bytes = static_cast<std::byte*>(data);
     DWORD received = 0;
@@ -39,7 +40,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
         DWORD current = 0;
         if (!ReadFile(handle, bytes + received, length - received, &current,
                       nullptr)) {
-            if (GetLastError() == ERROR_NO_DATA && ++idle <= 500) {
+            if (GetLastError() == ERROR_NO_DATA && ++idle <= max_idle) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
@@ -56,20 +57,27 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 
 [[nodiscard]] bool write_all(HANDLE handle,
                              const void* data,
-                             DWORD length) noexcept
+                             DWORD length,
+                             int max_idle = 500) noexcept
 {
     const auto* bytes = static_cast<const std::byte*>(data);
     DWORD written = 0;
+    int idle = 0;
     while (written < length) {
         DWORD current = 0;
         if (!WriteFile(handle, bytes + written, length - written, &current,
                        nullptr)) {
+            if (GetLastError() == ERROR_NO_DATA && ++idle <= max_idle) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             return false;
         }
         if (current == 0) {
             return false;
         }
         written += current;
+        idle = 0;
     }
     return true;
 }
@@ -81,10 +89,11 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 
 [[nodiscard]] std::vector<std::byte> read_frame(
     HANDLE handle,
-    const std::atomic<bool>* stop = nullptr) noexcept
+    const std::atomic<bool>* stop = nullptr,
+    int max_idle = 500) noexcept
 {
     std::uint32_t raw_length = 0;
-    if (!read_exact(handle, &raw_length, sizeof(raw_length), stop)) {
+    if (!read_exact(handle, &raw_length, sizeof(raw_length), stop, max_idle)) {
         return {};
     }
     const DWORD length = frame_length(raw_length);
@@ -92,7 +101,7 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
         return {};
     }
     std::vector<std::byte> data(length);
-    if (!read_exact(handle, data.data(), length, stop)) {
+    if (!read_exact(handle, data.data(), length, stop, max_idle)) {
         return {};
     }
     return data;
@@ -133,14 +142,16 @@ constexpr DWORD kMaxFrame = static_cast<DWORD>(kIpcMaxPayload + 64U);
 }
 
 [[nodiscard]] bool write_frame(HANDLE handle,
-                               std::span<const std::byte> data) noexcept
+                               std::span<const std::byte> data,
+                               int max_idle = 500) noexcept
 {
     if (data.empty() || data.size() > kMaxFrame) {
         return false;
     }
     const auto length = static_cast<std::uint32_t>(data.size());
-    return write_all(handle, &length, sizeof(length)) &&
-           write_all(handle, data.data(), static_cast<DWORD>(data.size()));
+    return write_all(handle, &length, sizeof(length), max_idle) &&
+           write_all(handle, data.data(), static_cast<DWORD>(data.size()),
+                     max_idle);
 }
 
 } // namespace
@@ -352,10 +363,17 @@ std::optional<IpcClient> IpcClient::connect(const std::string& name,
 {
     const std::string target = pipe_name(name);
     HANDLE handle = INVALID_HANDLE_VALUE;
-    for (int attempt = 0; attempt < 20; ++attempt) {
+    for (int attempt = 0; attempt < 5; ++attempt) {
         handle = CreateFileA(target.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
                              nullptr, OPEN_EXISTING, 0, nullptr);
         if (handle != INVALID_HANDLE_VALUE) {
+            DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
+            if (SetNamedPipeHandleState(handle, &mode, nullptr, nullptr) ==
+                FALSE) {
+                CloseHandle(handle);
+                error = "cannot set IPC client mode";
+                return std::nullopt;
+            }
             return IpcClient{handle};
         }
         if (GetLastError() != ERROR_FILE_NOT_FOUND &&
@@ -373,11 +391,12 @@ std::optional<Response> IpcClient::round_trip(const Request& request,
                                               std::string& error) noexcept
 {
     const std::vector<std::byte> encoded = encode_request(request);
-    if (encoded.empty() || !write_frame(handle_, encoded)) {
+    if (encoded.empty() ||
+        !write_frame(handle_, encoded, 100)) {
         error = "cannot write IPC request";
         return std::nullopt;
     }
-    const std::vector<std::byte> frame = read_frame(handle_);
+    const std::vector<std::byte> frame = read_frame(handle_, nullptr, 100);
     if (frame.empty()) {
         error = "cannot read IPC response";
         return std::nullopt;

@@ -1,5 +1,8 @@
+#include <atomic>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -20,7 +23,8 @@
 namespace {
 
 constexpr UINT kTrayMessage = WM_APP + 1;
-constexpr UINT_PTR kStatusTimer = 1;
+constexpr UINT kStatusMessage = WM_APP + 2;
+constexpr UINT kRefreshMessage = WM_APP + 3;
 constexpr int kMenuDashboard = 1001;
 constexpr int kMenuPresets = 2000;
 constexpr int kMenuStop = 3001;
@@ -36,6 +40,18 @@ HWND g_state = nullptr;
 HWND g_preset = nullptr;
 HWND g_pid = nullptr;
 std::vector<sdp::gui::Preset> g_presets;
+HANDLE g_stop_event = nullptr;
+std::thread g_poller;
+
+struct StatusSnapshot {
+    bool available{false};
+    bool running{false};
+    std::string preset;
+    unsigned int pid{0};
+};
+
+std::mutex g_status_mutex;
+StatusSnapshot g_status_snapshot;
 
 [[nodiscard]] std::wstring widen(std::string_view text)
 {
@@ -49,21 +65,6 @@ std::vector<sdp::gui::Preset> g_presets;
     MultiByteToWideChar(CP_UTF8, 0, text.data(),
                         static_cast<int>(text.size()), result.data(),
                         length);
-    return result;
-}
-
-[[nodiscard]] std::string narrow(std::wstring_view text)
-{
-    if (text.empty()) {
-        return {};
-    }
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text.data(),
-                                          static_cast<int>(text.size()),
-                                          nullptr, 0, nullptr, nullptr);
-    std::string result(static_cast<std::size_t>(length), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text.data(),
-                        static_cast<int>(text.size()), result.data(),
-                        length, nullptr, nullptr);
     return result;
 }
 
@@ -96,38 +97,66 @@ void update_tray(std::string_view text)
     Shell_NotifyIconW(NIM_MODIFY, &g_tray);
 }
 
-void refresh_status()
+void poll_status()
 {
     std::string response;
     std::string error;
+    StatusSnapshot snapshot;
+    if (send_request(sdp::ipc::MessageType::GetStatus, {}, response, error)) {
+        try {
+            const auto status = nlohmann::json::parse(response);
+            snapshot.available = true;
+            snapshot.running = status.value("state", 0U) == 4;
+            snapshot.preset = status.value("preset", std::string{});
+            snapshot.pid = status.value("pid", 0U);
+        }
+        catch (...) {
+        }
+    }
+    {
+        std::lock_guard lock{g_status_mutex};
+        g_status_snapshot = snapshot;
+    }
+    if (g_window != nullptr) {
+        PostMessageW(g_window, kStatusMessage, 0, 0);
+    }
+}
+
+void poll_loop()
+{
+    while (WaitForSingleObject(g_stop_event, 2000) == WAIT_TIMEOUT) {
+        poll_status();
+    }
+}
+
+void update_status_ui()
+{
+    StatusSnapshot snapshot;
+    {
+        std::lock_guard lock{g_status_mutex};
+        snapshot = g_status_snapshot;
+    }
+
     const auto& strings = sdp::gui::english();
-    if (!send_request(sdp::ipc::MessageType::GetStatus, {}, response, error)) {
+    if (!snapshot.available) {
         update_tray(strings.status_unavailable);
         return;
     }
 
-    try {
-        const auto status = nlohmann::json::parse(response);
-        const auto state = status.value("state", 0U) == 4;
-        const auto preset = status.value("preset", std::string{});
-        std::string text{state ? strings.status_running
-                               : strings.status_stopped};
-        if (!preset.empty()) {
-            text += " (" + preset + ")";
-        }
-        update_tray(text);
-
-        if (g_dashboard != nullptr) {
-            SetWindowTextW(g_state, widen(state ? strings.status_running
-                                                : strings.status_stopped)
-                                        .c_str());
-            SetWindowTextW(g_preset, widen(preset).c_str());
-            SetWindowTextW(g_pid,
-                           std::to_wstring(status.value("pid", 0U)).c_str());
-        }
+    std::string text{snapshot.running ? strings.status_running
+                                      : strings.status_stopped};
+    if (!snapshot.preset.empty()) {
+        text += " (" + snapshot.preset + ")";
     }
-    catch (...) {
-        update_tray(strings.parse_error);
+    update_tray(text);
+
+    if (g_dashboard != nullptr) {
+        SetWindowTextW(g_state,
+                       widen(snapshot.running ? strings.status_running
+                                              : strings.status_stopped)
+                           .c_str());
+        SetWindowTextW(g_preset, widen(snapshot.preset).c_str());
+        SetWindowTextW(g_pid, std::to_wstring(snapshot.pid).c_str());
     }
 }
 
@@ -161,14 +190,18 @@ void apply_preset(std::size_t index)
     }
     std::string response;
     std::string error;
-    const auto payload = sdp::ipc::encode_argv(g_presets[index].arguments);
+    // Send the preset token, not its expansion, so the service can report the
+    // active preset. The service still validates it through parse_cli().
+    const auto payload = sdp::ipc::encode_argv(
+        {std::string(g_presets[index].name)});
     const bool ok = send_request(sdp::ipc::MessageType::ApplyConfig, payload,
                                  response, error);
     const auto& strings = sdp::gui::english();
     MessageBoxW(g_window, widen(ok ? strings.preset_applied
                                    : (response.empty() ? error : response))
                               .c_str(),
-                widen(strings.app_name).c_str(), MB_OK | MB_ICONINFORMATION);
+                widen(strings.app_name).c_str(),
+                MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONWARNING));
 }
 
 void request_stop()
@@ -181,7 +214,8 @@ void request_stop()
     MessageBoxW(g_window,
                 widen(ok ? strings.stop_requested : strings.stop_failed)
                     .c_str(),
-                widen(strings.app_name).c_str(), MB_OK | MB_ICONINFORMATION);
+                widen(strings.app_name).c_str(),
+                MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONWARNING));
 }
 
 void show_tray_menu()
@@ -224,13 +258,22 @@ LRESULT CALLBACK dashboard_proc(HWND window,
     case WM_CREATE:
         {
             const auto& strings = sdp::gui::english();
-            g_state = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 10,
+            CreateWindowW(L"STATIC", widen(strings.state_label).c_str(),
+                          WS_CHILD | WS_VISIBLE, 10, 10, 70, 20, window,
+                          nullptr, nullptr, nullptr);
+            g_state = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
                                     10, 360, 20, window, nullptr, nullptr,
                                     nullptr);
-            g_preset = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 10,
+            CreateWindowW(L"STATIC", widen(strings.preset_label).c_str(),
+                          WS_CHILD | WS_VISIBLE, 10, 35, 70, 20, window,
+                          nullptr, nullptr, nullptr);
+            g_preset = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
                                      35, 360, 20, window, nullptr, nullptr,
                                      nullptr);
-            g_pid = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 10, 60,
+            CreateWindowW(L"STATIC", widen(strings.pid_label).c_str(),
+                          WS_CHILD | WS_VISIBLE, 10, 60, 70, 20, window,
+                          nullptr, nullptr, nullptr);
+            g_pid = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90, 60,
                                   360, 20, window, nullptr, nullptr, nullptr);
             CreateWindowW(L"STATIC", widen(strings.journal_label).c_str(),
                           WS_CHILD | WS_VISIBLE, 10, 90, 360, 20, window,
@@ -254,13 +297,19 @@ LRESULT CALLBACK dashboard_proc(HWND window,
                               static_cast<INT_PTR>(kDashboardClose)),
                           nullptr,
                           nullptr);
-            refresh_status();
-            refresh_journal();
+            PostMessageW(window, kRefreshMessage, 0, 0);
             return 0;
         }
+    case kRefreshMessage:
+        update_status_ui();
+        refresh_journal();
+        return 0;
+    case kStatusMessage:
+        update_status_ui();
+        return 0;
     case WM_COMMAND:
         if (LOWORD(wparam) == kDashboardRefresh) {
-            refresh_status();
+            update_status_ui();
             refresh_journal();
         }
         else if (LOWORD(wparam) == kDashboardClose) {
@@ -322,10 +371,8 @@ LRESULT CALLBACK tray_proc(HWND window,
             show_dashboard();
         }
         return 0;
-    case WM_TIMER:
-        if (wparam == kStatusTimer) {
-            refresh_status();
-        }
+    case kStatusMessage:
+        update_status_ui();
         return 0;
     case WM_COMMAND:
         switch (LOWORD(wparam)) {
@@ -337,7 +384,12 @@ LRESULT CALLBACK tray_proc(HWND window,
             break;
         case kMenuExit:
             Shell_NotifyIconW(NIM_DELETE, &g_tray);
-            KillTimer(window, kStatusTimer);
+            if (g_stop_event != nullptr) {
+                SetEvent(g_stop_event);
+            }
+            if (g_poller.joinable()) {
+                g_poller.join();
+            }
             PostQuitMessage(0);
             break;
         default:
@@ -381,10 +433,9 @@ int WINAPI wWinMain(HINSTANCE instance,
     g_tray.uID = 1;
     g_tray.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_tray.uCallbackMessage = kTrayMessage;
-    // IDI_APPLICATION is declared as LPSTR in some SDK headers; use its
-    // numeric resource id directly to keep the W call warning-free.
+    // Use the application icon embedded by shadowdpi-gui.rc.
     g_tray.hIcon = LoadIconW(
-        nullptr, reinterpret_cast<LPCWSTR>(static_cast<ULONG_PTR>(32513)));
+        instance, reinterpret_cast<LPCWSTR>(static_cast<ULONG_PTR>(1)));
     wcsncpy_s(g_tray.szTip, ARRAYSIZE(g_tray.szTip),
               widen(strings.status_unavailable).c_str(),
               ARRAYSIZE(g_tray.szTip) - 1);
@@ -392,13 +443,24 @@ int WINAPI wWinMain(HINSTANCE instance,
         return 1;
     }
 
-    SetTimer(g_window, kStatusTimer, 2000, nullptr);
-    refresh_status();
+    g_stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (g_stop_event == nullptr) {
+        Shell_NotifyIconW(NIM_DELETE, &g_tray);
+        return 1;
+    }
+    g_poller = std::thread{poll_loop};
+    poll_status();
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+
+    if (g_poller.joinable()) {
+        g_poller.join();
+    }
+    CloseHandle(g_stop_event);
+    g_stop_event = nullptr;
     return 0;
 }

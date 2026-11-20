@@ -1,8 +1,7 @@
 # Architecture
 
 ShadowDPI separates privileged packet processing from everything a user
-interacts with. This document describes the boundary introduced for the
-future GUI. The GUI itself is not implemented yet.
+interacts with. This document describes the boundary used by the tray GUI.
 
 ## Processes
 
@@ -28,8 +27,8 @@ Administrators have full access; Authenticated Users can connect to read
 status. No command is authorized by connection alone: the server impersonates
 each caller and checks membership in the Administrators group or in the
 optional `HKLM\Software\ShadowDPI\IpcAllowedSid` principal before allowing
-`ApplyConfig`, `Stop`, `Start`, `RunScan` or `GetLog`. `Handshake` and
-`GetStatus` are available to any authenticated caller. Without that registry
+`ApplyConfig`, `Stop`, `Start`, `RunScan` or `GetLog`. `Handshake`,
+`GetStatus` and `GetLog` are available to any authenticated caller. Without that registry
 value, a standard user can observe but not change anything. The caller PID in
 the handshake is informational and is never used as a credential.
 
@@ -44,8 +43,9 @@ Commands:
 | `GetLog` | implemented, returns the recent service journal as JSON |
 | `Start`, `RunScan` | reserved, return an explicit "not available in this phase" error |
 
-The GUI is expected to start and stop the service through the Service Control
-Manager, not through IPC, because a stopped service has no pipe.
+The GUI requests a stop through the IPC `Stop` command. Starting a stopped
+service is not available through IPC because a stopped service has no pipe;
+use the Service Control Manager or `install.ps1` for that.
 
 ## Configuration ownership
 

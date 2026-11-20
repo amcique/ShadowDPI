@@ -23,7 +23,6 @@ struct Strings {
     std::string_view refresh;
     std::string_view close;
     std::string_view preset_applied;
-    std::string_view preset_failed;
     std::string_view stop_requested;
     std::string_view stop_failed;
     std::string_view parse_error;

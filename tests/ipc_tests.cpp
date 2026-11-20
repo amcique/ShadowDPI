@@ -196,6 +196,7 @@ void test_authorization()
     CHECK(requires_privilege(MessageType::RunScan));
     CHECK(!requires_privilege(MessageType::Handshake));
     CHECK(!requires_privilege(MessageType::GetStatus));
+    CHECK(!requires_privilege(MessageType::GetLog));
 
     CHECK(!caller_may_run(Caller{}, MessageType::GetStatus));
 
