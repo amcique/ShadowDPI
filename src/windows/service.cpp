@@ -98,6 +98,104 @@ void report_status() noexcept
     return std::string(buffer, length);
 }
 
+// Validates and persists a new argument set from an IPC client. The parsed
+// CLI is checked before anything is written so an invalid request is cheap.
+static void handle_apply_config(const sdp::ipc::Request& request,
+                                sdp::ipc::Response& response)
+{
+    const auto received = sdp::ipc::decode_argv(request.payload);
+    if (!received) {
+        response.message = "malformed arguments";
+        return;
+    }
+    std::vector<std::string> arguments{"shadowdpi.exe"};
+    arguments.insert(arguments.end(), received->begin(), received->end());
+    std::vector<char*> argv;
+    argv.reserve(arguments.size());
+    for (auto& argument : arguments) {
+        argv.push_back(argument.data());
+    }
+    try {
+        (void)sdp::parse_cli(static_cast<int>(argv.size()), argv.data());
+    }
+    catch (const sdp::CliError& error) {
+        response.message = error.what();
+        return;
+    }
+    std::string error;
+    if (!sdp::ipc::save_config(sdp::ipc::default_config_path(),
+                               arguments, error)) {
+        response.message = error;
+        return;
+    }
+    // save_config writes through a temporary file and an atomic rename.
+    write_journal("configuration saved via IPC");
+    response.ok = true;
+    response.message = "saved; restart required";
+}
+
+// Writes a blacklist through a private temporary file, validates it, then
+// renames it into place. CREATE_NEW rejects a pre-existing path or symlink.
+static void handle_write_blacklist(const sdp::ipc::Request& request,
+                                   sdp::ipc::Response& response)
+{
+    std::string text;
+    text.reserve(request.payload.size());
+    for (const auto byte : request.payload) {
+        text.push_back(static_cast<char>(
+            std::to_integer<unsigned char>(byte)));
+    }
+    const auto target = sdp::ipc::default_blacklist_path();
+    auto temporary = target;
+    temporary += ".tmp";
+    std::size_t entry_count = 0;
+    const std::string error = [&]() -> std::string {
+        try {
+            std::filesystem::create_directories(target.parent_path());
+            {
+                HANDLE handle = CreateFileW(
+                    temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                    CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                if (handle == INVALID_HANDLE_VALUE) {
+                    return "cannot create blacklist file";
+                }
+                DWORD written = 0;
+                const bool ok = WriteFile(handle, text.data(),
+                                          static_cast<DWORD>(text.size()),
+                                          &written, nullptr) != FALSE &&
+                                written == text.size();
+                CloseHandle(handle);
+                if (!ok) {
+                    std::filesystem::remove(temporary);
+                    return "cannot write blacklist file";
+                }
+            }
+            sdp::Blacklist blacklist;
+            std::string load_error;
+            if (!blacklist.load(temporary, load_error)) {
+                return load_error;
+            }
+            entry_count = blacklist.size();
+            std::filesystem::rename(temporary, target);
+            return {};
+        }
+        catch (const std::exception& exception) {
+            return exception.what();
+        }
+    }();
+    if (!error.empty()) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        response.message = error;
+    }
+    else {
+        write_journal("blacklist saved via IPC, " +
+                      std::to_string(entry_count) + " entries");
+        response.ok = true;
+        response.message = "blacklist saved; restart required";
+    }
+}
+
 [[nodiscard]] sdp::ipc::Response handle_ipc_request(
     const sdp::ipc::Request& request,
     const sdp::ipc::Caller& caller) noexcept
@@ -115,6 +213,8 @@ void report_status() noexcept
         return response;
     }
 
+    // Each case fills in response.ok and response.message. Privileged commands
+    // are gated by caller_may_run above; unknown types are rejected.
     switch (request.type) {
     case MessageType::Handshake:
         response.ok = true;
@@ -125,6 +225,7 @@ void report_status() noexcept
 
     case MessageType::GetStatus:
         {
+            // Status is read under the mutex so the GUI sees a consistent set.
             nlohmann::json status;
             {
                 std::lock_guard lock{g_status_mutex};
@@ -141,6 +242,7 @@ void report_status() noexcept
 
     case MessageType::GetLog:
         {
+            // Journal lines are copied under the mutex before encoding.
             nlohmann::json log;
             log["lines"] = nlohmann::json::array();
             {
@@ -155,38 +257,7 @@ void report_status() noexcept
         break;
 
     case MessageType::ApplyConfig:
-        {
-            const auto received = sdp::ipc::decode_argv(request.payload);
-            if (!received) {
-                response.message = "malformed arguments";
-                break;
-            }
-            std::vector<std::string> arguments{"shadowdpi.exe"};
-            arguments.insert(arguments.end(), received->begin(),
-                             received->end());
-            std::vector<char*> argv;
-            argv.reserve(arguments.size());
-            for (auto& argument : arguments) {
-                argv.push_back(argument.data());
-            }
-            try {
-                (void)sdp::parse_cli(static_cast<int>(argv.size()),
-                                     argv.data());
-            }
-            catch (const sdp::CliError& error) {
-                response.message = error.what();
-                break;
-            }
-            std::string error;
-            if (!sdp::ipc::save_config(sdp::ipc::default_config_path(),
-                                       arguments, error)) {
-                response.message = error;
-                break;
-            }
-            write_journal("configuration saved via IPC");
-            response.ok = true;
-            response.message = "saved; restart required";
-        }
+        handle_apply_config(request, response);
         break;
 
     case MessageType::Stop:
@@ -197,66 +268,7 @@ void report_status() noexcept
         break;
 
     case MessageType::WriteBlacklist:
-        {
-            std::string text;
-            text.reserve(request.payload.size());
-            for (const auto byte : request.payload) {
-                text.push_back(static_cast<char>(
-                    std::to_integer<unsigned char>(byte)));
-            }
-            const auto target = sdp::ipc::default_blacklist_path();
-            auto temporary = target;
-            temporary += ".tmp";
-            std::size_t entry_count = 0;
-            const std::string error = [&]() -> std::string {
-                try {
-                    std::filesystem::create_directories(target.parent_path());
-                    {
-                        // CREATE_NEW plus OPEN_REPARSE_POINT refuses a planted
-                        // symlink at the temporary path.
-                        HANDLE handle = CreateFileW(
-                            temporary.c_str(), GENERIC_WRITE, 0, nullptr,
-                            CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-                        if (handle == INVALID_HANDLE_VALUE) {
-                            return "cannot create blacklist file";
-                        }
-                        DWORD written = 0;
-                        const bool ok = WriteFile(handle, text.data(),
-                                                  static_cast<DWORD>(
-                                                      text.size()),
-                                                  &written, nullptr) != FALSE &&
-                                        written == text.size();
-                        CloseHandle(handle);
-                        if (!ok) {
-                            std::filesystem::remove(temporary);
-                            return "cannot write blacklist file";
-                        }
-                    }
-                    sdp::Blacklist blacklist;
-                    std::string load_error;
-                    if (!blacklist.load(temporary, load_error)) {
-                        return load_error;
-                    }
-                    entry_count = blacklist.size();
-                    std::filesystem::rename(temporary, target);
-                    return {};
-                }
-                catch (const std::exception& exception) {
-                    return exception.what();
-                }
-            }();
-            if (!error.empty()) {
-                std::error_code ignored;
-                std::filesystem::remove(temporary, ignored);
-                response.message = error;
-            }
-            else {
-                write_journal("blacklist saved via IPC, " +
-                              std::to_string(entry_count) + " entries");
-                response.ok = true;
-                response.message = "blacklist saved; restart required";
-            }
-        }
+        handle_write_blacklist(request, response);
         break;
 
     case MessageType::Start:
@@ -326,8 +338,12 @@ void WINAPI service_control(DWORD control)
     }
 }
 
+// SCM entry point: registers the control handler, brings up the IPC server,
+// merges saved config and blacklist into the launch arguments, runs the packet
+// engine, then tears everything down and reports SERVICE_STOPPED.
 void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
 {
+    // Initial status transitions to START_PENDING while setup is in progress.
     {
         std::lock_guard lock{g_status_mutex};
         g_status = {};
@@ -361,6 +377,7 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         write_journal("service running");
     });
 
+    // The ready callback flips status to RUNNING once the engine opens filters.
     write_journal("service starting");
     const auto config_writer = read_allowed_sid();
     std::unique_ptr<sdp::ipc::IpcServer> ipc;
@@ -373,6 +390,8 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
         OutputDebugStringA(("ShadowDPI IPC unavailable: " + ipc_error).c_str());
     }
 
+    // Saved config wins over command-line arguments; the blacklist is added
+    // as a trailing --blacklist option when a saved copy exists.
     std::vector<std::string> effective_arguments = g_arguments;
     std::string config_error;
     const auto stored =
@@ -404,11 +423,13 @@ void WINAPI service_main(DWORD /*argc*/, LPSTR* /*argv*/)
     }
     argv.push_back(nullptr);
 
+    // The engine blocks here until shutdown is requested.
     const int result =
         run_application(static_cast<int>(effective_arguments.size()),
                         argv.data());
     write_journal("service stopped, exit " + std::to_string(result));
 
+    // Stop the IPC thread and watchdog before reporting the final status.
     if (ipc) {
         ipc->stop();
     }

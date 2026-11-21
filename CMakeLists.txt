@@ -97,7 +97,7 @@ target_include_directories(shadowdpi_ipc PUBLIC
 )
 
 target_compile_features(shadowdpi_ipc PUBLIC cxx_std_20)
-target_link_libraries(shadowdpi_ipc PUBLIC advapi32)
+target_link_libraries(shadowdpi_ipc PUBLIC advapi32 shell32 ole32)
 
 target_compile_options(shadowdpi_ipc PRIVATE
     ${SHADOWDPI_WARNING_FLAGS}

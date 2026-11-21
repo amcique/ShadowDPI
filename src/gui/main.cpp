@@ -232,6 +232,52 @@ void show_tray_menu()
     DestroyMenu(menu);
 }
 
+// Builds the dashboard's child controls and stores their handles in the
+// module globals used by the refresh functions.
+static void create_dashboard_controls(HWND window)
+{
+    const auto& strings = sdp::gui::english();
+    CreateWindowW(L"STATIC", widen(strings.state_label).c_str(),
+                  WS_CHILD | WS_VISIBLE, 10, 10, 70, 20, window,
+                  nullptr, nullptr, nullptr);
+    g_state = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
+                            10, 360, 20, window, nullptr, nullptr,
+                            nullptr);
+    CreateWindowW(L"STATIC", widen(strings.preset_label).c_str(),
+                  WS_CHILD | WS_VISIBLE, 10, 35, 70, 20, window,
+                  nullptr, nullptr, nullptr);
+    g_preset = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
+                             35, 360, 20, window, nullptr, nullptr,
+                             nullptr);
+    CreateWindowW(L"STATIC", widen(strings.pid_label).c_str(),
+                  WS_CHILD | WS_VISIBLE, 10, 60, 70, 20, window,
+                  nullptr, nullptr, nullptr);
+    g_pid = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90, 60,
+                          360, 20, window, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", widen(strings.journal_label).c_str(),
+                  WS_CHILD | WS_VISIBLE, 10, 90, 360, 20, window,
+                  nullptr, nullptr, nullptr);
+    g_journal = CreateWindowW(
+        L"LISTBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL |
+            LBS_NOTIFY,
+        10, 115, 440, 240, window, nullptr, nullptr, nullptr);
+    CreateWindowW(L"BUTTON", widen(strings.refresh).c_str(),
+                  WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 370, 100,
+                  28, window,
+                  reinterpret_cast<HMENU>(
+                      static_cast<INT_PTR>(kDashboardRefresh)),
+                  nullptr,
+                  nullptr);
+    CreateWindowW(L"BUTTON", widen(strings.close).c_str(),
+                  WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 370, 100,
+                  28, window,
+                  reinterpret_cast<HMENU>(
+                      static_cast<INT_PTR>(kDashboardClose)),
+                  nullptr,
+                  nullptr);
+}
+
 LRESULT CALLBACK dashboard_proc(HWND window,
                                 UINT message,
                                 WPARAM wparam,
@@ -239,50 +285,9 @@ LRESULT CALLBACK dashboard_proc(HWND window,
 {
     switch (message) {
     case WM_CREATE:
-        {
-            const auto& strings = sdp::gui::english();
-            CreateWindowW(L"STATIC", widen(strings.state_label).c_str(),
-                          WS_CHILD | WS_VISIBLE, 10, 10, 70, 20, window,
-                          nullptr, nullptr, nullptr);
-            g_state = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
-                                    10, 360, 20, window, nullptr, nullptr,
-                                    nullptr);
-            CreateWindowW(L"STATIC", widen(strings.preset_label).c_str(),
-                          WS_CHILD | WS_VISIBLE, 10, 35, 70, 20, window,
-                          nullptr, nullptr, nullptr);
-            g_preset = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90,
-                                     35, 360, 20, window, nullptr, nullptr,
-                                     nullptr);
-            CreateWindowW(L"STATIC", widen(strings.pid_label).c_str(),
-                          WS_CHILD | WS_VISIBLE, 10, 60, 70, 20, window,
-                          nullptr, nullptr, nullptr);
-            g_pid = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 90, 60,
-                                  360, 20, window, nullptr, nullptr, nullptr);
-            CreateWindowW(L"STATIC", widen(strings.journal_label).c_str(),
-                          WS_CHILD | WS_VISIBLE, 10, 90, 360, 20, window,
-                          nullptr, nullptr, nullptr);
-            g_journal = CreateWindowW(
-                L"LISTBOX", L"",
-                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL |
-                    LBS_NOTIFY,
-                10, 115, 440, 240, window, nullptr, nullptr, nullptr);
-            CreateWindowW(L"BUTTON", widen(strings.refresh).c_str(),
-                          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 370, 100,
-                          28, window,
-                          reinterpret_cast<HMENU>(
-                              static_cast<INT_PTR>(kDashboardRefresh)),
-                          nullptr,
-                          nullptr);
-            CreateWindowW(L"BUTTON", widen(strings.close).c_str(),
-                          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 370, 100,
-                          28, window,
-                          reinterpret_cast<HMENU>(
-                              static_cast<INT_PTR>(kDashboardClose)),
-                          nullptr,
-                          nullptr);
-            PostMessageW(window, kRefreshMessage, 0, 0);
-            return 0;
-        }
+        create_dashboard_controls(window);
+        PostMessageW(window, kRefreshMessage, 0, 0);
+        return 0;
     case kRefreshMessage:
         update_status_ui();
         refresh_journal();
@@ -340,6 +345,46 @@ void show_dashboard()
     }
 }
 
+// Dispatches a tray menu selection. Preset ids are offset from kMenuPresets.
+static void handle_tray_command(WORD command)
+{
+    switch (command) {
+    case kMenuDashboard:
+        show_dashboard();
+        break;
+    case kMenuStop:
+        request_stop();
+        break;
+    case kMenuScan:
+        sdp::gui::show_scan_wizard(g_window);
+        break;
+    case kMenuBlacklist:
+        sdp::gui::show_blacklist_editor(g_window);
+        break;
+    case kMenuDns:
+        sdp::gui::show_dns_editor(g_window);
+        break;
+    case kMenuAdvanced:
+        sdp::gui::show_advanced_editor(g_window);
+        break;
+    case kMenuExit:
+        Shell_NotifyIconW(NIM_DELETE, &g_tray);
+        if (g_stop_event != nullptr) {
+            SetEvent(g_stop_event);
+        }
+        if (g_poller.joinable()) {
+            g_poller.join();
+        }
+        PostQuitMessage(0);
+        break;
+    default:
+        if (command >= kMenuPresets) {
+            apply_preset(command - kMenuPresets);
+        }
+        break;
+    }
+}
+
 LRESULT CALLBACK tray_proc(HWND window,
                            UINT message,
                            WPARAM wparam,
@@ -358,41 +403,7 @@ LRESULT CALLBACK tray_proc(HWND window,
         update_status_ui();
         return 0;
     case WM_COMMAND:
-        switch (LOWORD(wparam)) {
-        case kMenuDashboard:
-            show_dashboard();
-            break;
-        case kMenuStop:
-            request_stop();
-            break;
-        case kMenuScan:
-            sdp::gui::show_scan_wizard(g_window);
-            break;
-        case kMenuBlacklist:
-            sdp::gui::show_blacklist_editor(g_window);
-            break;
-        case kMenuDns:
-            sdp::gui::show_dns_editor(g_window);
-            break;
-        case kMenuAdvanced:
-            sdp::gui::show_advanced_editor(g_window);
-            break;
-        case kMenuExit:
-            Shell_NotifyIconW(NIM_DELETE, &g_tray);
-            if (g_stop_event != nullptr) {
-                SetEvent(g_stop_event);
-            }
-            if (g_poller.joinable()) {
-                g_poller.join();
-            }
-            PostQuitMessage(0);
-            break;
-        default:
-            if (LOWORD(wparam) >= kMenuPresets) {
-                apply_preset(LOWORD(wparam) - kMenuPresets);
-            }
-            break;
-        }
+        handle_tray_command(LOWORD(wparam));
         return 0;
     default:
         return DefWindowProcW(window, message, wparam, lparam);

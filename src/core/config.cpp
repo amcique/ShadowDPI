@@ -148,9 +148,7 @@ void finalize_config(Config& config)
         if (config.fake.auto_ttl.max < config.fake.auto_ttl.first) {
             throw CliError("--auto-ttl max must be at least the first value");
         }
-        if (config.fake.min_ttl > 255) {
-            throw CliError("--min-ttl must be at most 255");
-        }
+        // min_ttl is uint8_t, so its range is already bounded to 0..255.
     }
 
     if (config.dns.v4_server && config.dns.v4_port == 0) {

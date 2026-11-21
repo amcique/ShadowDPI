@@ -312,6 +312,209 @@ void finish_scan(HWND window)
     EnableWindow(GetDlgItem(window, kScanApply), TRUE);
 }
 
+// Builds the scanner wizard's input fields, progress list and buttons.
+static void create_scan_controls(HWND window)
+{
+    const auto& strings = english();
+    label(window, widen(strings.urls_label), 10, 10, 150);
+    control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
+            170, 10, 440, 22, kScanUrls);
+    label(window, widen(strings.url_file_label), 10, 40, 150);
+    control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
+            170, 40, 440, 22, kScanUrlFile);
+    label(window, widen(strings.level_label), 10, 70, 150);
+    control(window, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+            170, 70, 150, 100, kScanLevel);
+    for (const auto* level : {"quick", "standard", "full"}) {
+        SendMessageW(GetDlgItem(window, kScanLevel), CB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(widen(level).c_str()));
+    }
+    SendMessageW(GetDlgItem(window, kScanLevel), CB_SETCURSEL, 1, 0);
+
+    label(window, widen(strings.protocols_label), 330, 70, 100);
+    control(window, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+            440, 70, 170, 100, kScanProtocols);
+    for (const auto* protocol : {"auto", "tls12", "tls13", "all"}) {
+        SendMessageW(GetDlgItem(window, kScanProtocols), CB_ADDSTRING,
+                     0, reinterpret_cast<LPARAM>(widen(protocol).c_str()));
+    }
+    SendMessageW(GetDlgItem(window, kScanProtocols), CB_SETCURSEL, 0, 0);
+
+    label(window, widen(strings.ip_label), 10, 100, 150);
+    control(window, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+            170, 100, 150, 100, kScanIp);
+    for (const auto* version : {"4", "6", "auto"}) {
+        SendMessageW(GetDlgItem(window, kScanIp), CB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(widen(version).c_str()));
+    }
+    SendMessageW(GetDlgItem(window, kScanIp), CB_SETCURSEL, 0, 0);
+
+    label(window, widen(strings.timeout_label), 330, 100, 100);
+    control(window, L"EDIT", L"5", WS_CHILD | WS_VISIBLE | WS_BORDER,
+            440, 100, 60, 22, kScanTimeout);
+
+    label(window, widen(strings.dns_label), 10, 130, 150);
+    control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
+            170, 130, 440, 22, kScanDns);
+
+    label(window, widen(strings.scan_progress), 10, 160, 200);
+    control(window, L"LISTBOX", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL,
+            10, 185, 600, 180, kScanProgress);
+    control(window, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+            10, 375, 600, 20, kScanResult);
+
+    control(window, L"BUTTON", widen(strings.start_scan).c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            10, 405, 120, 28, kScanStart);
+    control(window, L"BUTTON", widen(strings.apply_recommended).c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_DISABLED,
+            140, 405, 220, 28, kScanApply);
+    control(window, L"BUTTON", widen(strings.close).c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            370, 405, 100, 28, kScanClose);
+}
+
+// Collects the wizard inputs, verifies the installer script and launches an
+// elevated scan. All values are quoted by build_elevated_command so no field
+// can be reinterpreted as a PowerShell switch or statement.
+static void start_scan(HWND window)
+{
+    const auto& strings = english();
+    if (g_scan.process != nullptr) {
+        show_message(window, widen(strings.scan_in_progress),
+                     MB_OK | MB_ICONWARNING);
+        return;
+    }
+    const auto script = installer_script_path();
+    std::string script_bytes;
+    if (!read_file_bytes(script, script_bytes) ||
+        sha256_bytes(script_bytes) != kInstallScriptSha256) {
+        show_message(window, widen(strings.scan_script_invalid),
+                     MB_OK | MB_ICONWARNING);
+        return;
+    }
+    const auto powershell = powershell_path();
+    if (powershell.empty()) {
+        show_message(window, widen(strings.scan_elevation),
+                     MB_OK | MB_ICONWARNING);
+        return;
+    }
+    ScanOptions options;
+    const auto urls = narrow_text(window_text(window, kScanUrls));
+    std::string current;
+    for (const auto character : urls) {
+        if (character == ',') {
+            if (!current.empty()) {
+                options.urls.push_back(current);
+                current.clear();
+            }
+        }
+        else {
+            current.push_back(character);
+        }
+    }
+    if (!current.empty()) {
+        options.urls.push_back(current);
+    }
+    options.url_file = narrow_text(window_text(window, kScanUrlFile));
+    const auto selection = [](HWND combo, int fallback) {
+        const auto index = static_cast<int>(
+            SendMessageW(combo, CB_GETCURSEL, 0, 0));
+        return index >= 0 ? index : fallback;
+    };
+    options.scan_level = selection(GetDlgItem(window, kScanLevel), 1) == 0
+                             ? "quick"
+                             : (selection(GetDlgItem(window, kScanLevel), 1) == 2
+                                    ? "full"
+                                    : "standard");
+    const auto protocol_index =
+        selection(GetDlgItem(window, kScanProtocols), 0);
+    options.protocols = protocol_index == 1
+                            ? "tls12"
+                            : (protocol_index == 2
+                                   ? "tls13"
+                                   : (protocol_index == 3 ? "all" : "auto"));
+    const auto ip_index = selection(GetDlgItem(window, kScanIp), 0);
+    options.ip_version = ip_index == 1 ? "6" : (ip_index == 2 ? "auto" : "4");
+    options.timeout_sec = 5;
+    try {
+        const auto entered = std::stoi(
+            narrow_text(window_text(window, kScanTimeout)));
+        if (entered >= 1 && entered <= 120) {
+            options.timeout_sec = entered;
+        }
+        else {
+            show_message(window, widen(strings.scan_invalid_timeout),
+                         MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
+    catch (...) {
+        show_message(window, widen(strings.scan_invalid_timeout),
+                     MB_OK | MB_ICONWARNING);
+        return;
+    }
+    options.dns_addr = narrow_text(window_text(window, kScanDns));
+
+    g_scan.json_path = temporary_path(L"-scan.json");
+    g_scan.progress_path = temporary_path(L"-progress.jsonl");
+    g_scan.collector = ProgressCollector{};
+    g_scan.summary = ScanSummary{};
+    EnableWindow(GetDlgItem(window, kScanApply), FALSE);
+    SetWindowTextW(GetDlgItem(window, kScanResult), L"");
+    SendMessageW(GetDlgItem(window, kScanProgress), LB_RESETCONTENT, 0, 0);
+
+    auto arguments = build_scan_arguments(
+        options, narrow_text(g_scan.json_path),
+        narrow_text(g_scan.progress_path));
+    // A ScriptBlock has no $PSScriptRoot, so give the installer absolute
+    // paths for the executable and the default URL list.
+    const auto script_directory = std::filesystem::path(script).parent_path();
+    arguments.push_back("-Exe");
+    arguments.push_back(
+        narrow_text((script_directory / "shadowdpi.exe").wstring()));
+    if (options.urls.empty() && options.url_file.empty()) {
+        arguments.push_back("-UrlFile");
+        arguments.push_back(narrow_text(
+            (script_directory / "tools\\scan-urls.txt").wstring()));
+    }
+
+    std::vector<std::wstring> wide_arguments;
+    wide_arguments.reserve(arguments.size());
+    for (const auto& argument : arguments) {
+        wide_arguments.push_back(widen(argument));
+    }
+    const auto command = build_elevated_command(
+        widen(std::string_view{kInstallScriptSha256}), script, wide_arguments);
+    std::wstring parameters =
+        L"-NoProfile -ExecutionPolicy Bypass -Command " +
+        quote_windows_argument(command);
+
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOCLOSEPROCESS;
+    info.lpVerb = L"runas";
+    info.lpFile = powershell.c_str();
+    info.lpParameters = parameters.c_str();
+    info.nShow = SW_HIDE;
+    if (!ShellExecuteExW(&info) || info.hProcess == nullptr) {
+        show_message(window, widen(strings.scan_elevation),
+                     MB_OK | MB_ICONWARNING);
+        return;
+    }
+    g_scan.process = info.hProcess;
+    EnableWindow(GetDlgItem(window, kScanStart), FALSE);
+    EnableWindow(GetDlgItem(window, kScanClose), FALSE);
+    SetTimer(window, 1, 300, nullptr);
+}
+
+// Window procedure for the scanner wizard. The timer drains the progress file
+// and finishes the scan when the elevated process exits; the Apply button
+// sends the recommended preset back through IPC.
 LRESULT CALLBACK scan_proc(HWND window,
                            UINT message,
                            WPARAM wparam,
@@ -319,74 +522,10 @@ LRESULT CALLBACK scan_proc(HWND window,
 {
     switch (message) {
     case WM_CREATE:
-        {
-            const auto& strings = english();
-            label(window, widen(strings.urls_label), 10, 10, 150);
-            control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
-                    170, 10, 440, 22, kScanUrls);
-            label(window, widen(strings.url_file_label), 10, 40, 150);
-            control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
-                    170, 40, 440, 22, kScanUrlFile);
-            label(window, widen(strings.level_label), 10, 70, 150);
-            control(window, L"COMBOBOX", L"",
-                    WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                    170, 70, 150, 100, kScanLevel);
-            for (const auto* level : {"quick", "standard", "full"}) {
-                SendMessageW(GetDlgItem(window, kScanLevel), CB_ADDSTRING, 0,
-                             reinterpret_cast<LPARAM>(widen(level).c_str()));
-            }
-            SendMessageW(GetDlgItem(window, kScanLevel), CB_SETCURSEL, 1, 0);
-
-            label(window, widen(strings.protocols_label), 330, 70, 100);
-            control(window, L"COMBOBOX", L"",
-                    WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                    440, 70, 170, 100, kScanProtocols);
-            for (const auto* protocol : {"auto", "tls12", "tls13", "all"}) {
-                SendMessageW(GetDlgItem(window, kScanProtocols), CB_ADDSTRING,
-                             0,
-                             reinterpret_cast<LPARAM>(widen(protocol).c_str()));
-            }
-            SendMessageW(GetDlgItem(window, kScanProtocols), CB_SETCURSEL, 0,
-                         0);
-
-            label(window, widen(strings.ip_label), 10, 100, 150);
-            control(window, L"COMBOBOX", L"",
-                    WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                    170, 100, 150, 100, kScanIp);
-            for (const auto* version : {"4", "6", "auto"}) {
-                SendMessageW(GetDlgItem(window, kScanIp), CB_ADDSTRING, 0,
-                             reinterpret_cast<LPARAM>(widen(version).c_str()));
-            }
-            SendMessageW(GetDlgItem(window, kScanIp), CB_SETCURSEL, 0, 0);
-
-            label(window, widen(strings.timeout_label), 330, 100, 100);
-            control(window, L"EDIT", L"5", WS_CHILD | WS_VISIBLE | WS_BORDER,
-                    440, 100, 60, 22, kScanTimeout);
-
-            label(window, widen(strings.dns_label), 10, 130, 150);
-            control(window, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
-                    170, 130, 440, 22, kScanDns);
-
-            label(window, widen(strings.scan_progress), 10, 160, 200);
-            control(window, L"LISTBOX", L"",
-                    WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL,
-                    10, 185, 600, 180, kScanProgress);
-            control(window, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                    10, 375, 600, 20, kScanResult);
-
-            control(window, L"BUTTON", widen(strings.start_scan).c_str(),
-                    WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    10, 405, 120, 28, kScanStart);
-            control(window, L"BUTTON",
-                    widen(strings.apply_recommended).c_str(),
-                    WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_DISABLED,
-                    140, 405, 220, 28, kScanApply);
-            control(window, L"BUTTON", widen(strings.close).c_str(),
-                    WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    370, 405, 100, 28, kScanClose);
-            return 0;
-        }
+        create_scan_controls(window);
+        return 0;
     case WM_TIMER:
+        // Poll progress and detect process exit on each timer tick.
         append_progress(GetDlgItem(window, kScanProgress));
         if (g_scan.process != nullptr &&
             WaitForSingleObject(g_scan.process, 0) == WAIT_OBJECT_0) {
@@ -397,149 +536,7 @@ LRESULT CALLBACK scan_proc(HWND window,
     case WM_COMMAND:
         switch (LOWORD(wparam)) {
         case kScanStart:
-            {
-                const auto& strings = english();
-                if (g_scan.process != nullptr) {
-                    show_message(window, widen(strings.scan_in_progress),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                const auto script = installer_script_path();
-                std::string script_bytes;
-                if (!read_file_bytes(script, script_bytes) ||
-                    sha256_bytes(script_bytes) != kInstallScriptSha256) {
-                    show_message(window, widen(strings.scan_script_invalid),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                const auto powershell = powershell_path();
-                if (powershell.empty()) {
-                    show_message(window, widen(strings.scan_elevation),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                ScanOptions options;
-                const auto urls = narrow_text(window_text(window, kScanUrls));
-                std::string current;
-                for (const auto character : urls) {
-                    if (character == ',') {
-                        if (!current.empty()) {
-                            options.urls.push_back(current);
-                            current.clear();
-                        }
-                    }
-                    else {
-                        current.push_back(character);
-                    }
-                }
-                if (!current.empty()) {
-                    options.urls.push_back(current);
-                }
-                options.url_file =
-                    narrow_text(window_text(window, kScanUrlFile));
-                const auto selection = [](HWND combo, int fallback) {
-                    const auto index = static_cast<int>(
-                        SendMessageW(combo, CB_GETCURSEL, 0, 0));
-                    return index >= 0 ? index : fallback;
-                };
-                options.scan_level = selection(GetDlgItem(window, kScanLevel),
-                                               1) == 0 ? "quick"
-                                                       : (selection(
-                                                              GetDlgItem(
-                                                                  window,
-                                                                  kScanLevel),
-                                                              1) == 2
-                                                              ? "full"
-                                                              : "standard");
-                const auto protocol_index =
-                    selection(GetDlgItem(window, kScanProtocols), 0);
-                options.protocols = protocol_index == 1 ? "tls12"
-                                                        : (protocol_index == 2
-                                                               ? "tls13"
-                                                               : (protocol_index ==
-                                                                          3
-                                                                      ? "all"
-                                                                      : "auto"));
-                const auto ip_index = selection(GetDlgItem(window, kScanIp), 0);
-                options.ip_version = ip_index == 1 ? "6"
-                                                   : (ip_index == 2 ? "auto"
-                                                                    : "4");
-                options.timeout_sec = 5;
-                try {
-                    const auto entered = std::stoi(narrow_text(
-                        window_text(window, kScanTimeout)));
-                    if (entered >= 1 && entered <= 120) {
-                        options.timeout_sec = entered;
-                    }
-                    else {
-                        show_message(window,
-                                     widen(strings.scan_invalid_timeout),
-                                     MB_OK | MB_ICONWARNING);
-                        return 0;
-                    }
-                }
-                catch (...) {
-                    show_message(window,
-                                 widen(strings.scan_invalid_timeout),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                options.dns_addr = narrow_text(window_text(window, kScanDns));
-
-                g_scan.json_path = temporary_path(L"-scan.json");
-                g_scan.progress_path = temporary_path(L"-progress.jsonl");
-                g_scan.collector = ProgressCollector{};
-                g_scan.summary = ScanSummary{};
-                EnableWindow(GetDlgItem(window, kScanApply), FALSE);
-                SetWindowTextW(GetDlgItem(window, kScanResult), L"");
-                SendMessageW(GetDlgItem(window, kScanProgress), LB_RESETCONTENT,
-                             0, 0);
-
-                auto arguments = build_scan_arguments(
-                    options, narrow_text(g_scan.json_path),
-                    narrow_text(g_scan.progress_path));
-                // A ScriptBlock has no $PSScriptRoot, so give the installer
-                // absolute paths for the executable and the default URL list.
-                const auto script_directory =
-                    std::filesystem::path(script).parent_path();
-                arguments.push_back("-Exe");
-                arguments.push_back(narrow_text(
-                    (script_directory / "shadowdpi.exe").wstring()));
-                if (options.urls.empty() && options.url_file.empty()) {
-                    arguments.push_back("-UrlFile");
-                    arguments.push_back(narrow_text(
-                        (script_directory / "tools\\scan-urls.txt").wstring()));
-                }
-
-                std::vector<std::wstring> wide_arguments;
-                wide_arguments.reserve(arguments.size());
-                for (const auto& argument : arguments) {
-                    wide_arguments.push_back(widen(argument));
-                }
-                const auto command = build_elevated_command(
-                    widen(std::string_view{kInstallScriptSha256}), script,
-                    wide_arguments);
-                std::wstring parameters =
-                    L"-NoProfile -ExecutionPolicy Bypass -Command " +
-                    quote_windows_argument(command);
-
-                SHELLEXECUTEINFOW info{};
-                info.cbSize = sizeof(info);
-                info.fMask = SEE_MASK_NOCLOSEPROCESS;
-                info.lpVerb = L"runas";
-                info.lpFile = powershell.c_str();
-                info.lpParameters = parameters.c_str();
-                info.nShow = SW_HIDE;
-                if (!ShellExecuteExW(&info) || info.hProcess == nullptr) {
-                    show_message(window, widen(strings.scan_elevation),
-                                 MB_OK | MB_ICONWARNING);
-                    return 0;
-                }
-                g_scan.process = info.hProcess;
-                EnableWindow(GetDlgItem(window, kScanStart), FALSE);
-                EnableWindow(GetDlgItem(window, kScanClose), FALSE);
-                SetTimer(window, 1, 300, nullptr);
-            }
+            start_scan(window);
             return 0;
         case kScanApply:
             {
@@ -563,6 +560,7 @@ LRESULT CALLBACK scan_proc(HWND window,
         }
         return 0;
     case WM_CLOSE:
+        // Do not abandon a running elevated scan by closing the window.
         if (g_scan.process != nullptr) {
             show_message(window, widen(english().scan_in_progress),
                          MB_OK | MB_ICONWARNING);

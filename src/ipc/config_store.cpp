@@ -10,6 +10,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <shlobj.h>
+#include <objbase.h>
 
 namespace sdp::ipc {
 namespace {
@@ -74,58 +76,49 @@ void append_escaped(std::string& out, unsigned char value)
 [[nodiscard]] bool unescape(const std::string& source,
                             std::string& out) noexcept
 {
-    for (std::size_t index = 0; index < source.size(); ++index) {
-        if (source[index] != '\\') {
-            out.push_back(source[index]);
-            continue;
-        }
-        if (++index >= source.size()) {
-            return false;
-        }
-        switch (source[index]) {
-        case '"':
-            out.push_back('"');
-            break;
-        case '\\':
-            out.push_back('\\');
-            break;
-        case '/':
-            out.push_back('/');
-            break;
-        case 'b':
-            out.push_back('\b');
-            break;
-        case 'f':
-            out.push_back('\f');
-            break;
-        case 'n':
-            out.push_back('\n');
-            break;
-        case 'r':
-            out.push_back('\r');
-            break;
-        case 't':
-            out.push_back('\t');
-            break;
-        case 'u':
-            {
-                if (source.size() - index < 5) {
-                    return false;
-                }
-                unsigned char high = 0;
-                unsigned char low = 0;
-                if (!hex_value(source[index + 1], high) ||
-                    !hex_value(source[index + 2], low) ||
-                    source[index + 3] != '0' || source[index + 4] != '0') {
-                    return false;
-                }
-                out.push_back(static_cast<char>((high << 4U) | low));
-                index += 4;
+    std::size_t index = 0;
+    while (index < source.size()) {
+        std::size_t advance = 1;
+        const char current = source[index];
+        if (current == '\\') {
+            if (index + 1 >= source.size()) {
+                return false;
             }
-            break;
-        default:
-            return false;
+            const char escaped = source[index + 1];
+            advance = 2;
+            switch (escaped) {
+            case '"': out.push_back('"'); break;
+            case '\\': out.push_back('\\'); break;
+            case '/': out.push_back('/'); break;
+            case 'b': out.push_back('\b'); break;
+            case 'f': out.push_back('\f'); break;
+            case 'n': out.push_back('\n'); break;
+            case 'r': out.push_back('\r'); break;
+            case 't': out.push_back('\t'); break;
+            case 'u':
+                {
+                    if (source.size() - index < 6) {
+                        return false;
+                    }
+                    unsigned char high = 0;
+                    unsigned char low = 0;
+                    if (!hex_value(source[index + 2], high) ||
+                        !hex_value(source[index + 3], low) ||
+                        source[index + 4] != '0' || source[index + 5] != '0') {
+                        return false;
+                    }
+                    out.push_back(static_cast<char>((high << 4U) | low));
+                    advance = 6;
+                }
+                break;
+            default:
+                return false;
+            }
         }
+        else {
+            out.push_back(current);
+        }
+        index += advance;
     }
     return true;
 }
@@ -136,14 +129,17 @@ namespace {
 
 [[nodiscard]] std::filesystem::path shadowdpi_data_path()
 {
-    constexpr DWORD kBufferSize = 4096;
-    char buffer[kBufferSize]{};
-    const DWORD length = GetEnvironmentVariableA("ProgramData", buffer,
-                                                 kBufferSize);
-    const std::string base = length > 0 && length < kBufferSize
-                                 ? std::string(buffer, length)
-                                 : std::string("C:\\ProgramData");
-    return std::filesystem::path(base) / "ShadowDPI";
+    // SHGetKnownFolderPath returns the system-managed ProgramData path. Using
+    // this API instead of the ProgramData environment variable avoids relying
+    // on a value that a caller can override for the process.
+    PWSTR raw = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &raw)) ||
+        raw == nullptr) {
+        return std::filesystem::path("C:\\ProgramData") / "ShadowDPI";
+    }
+    std::wstring wide(raw);
+    CoTaskMemFree(raw);
+    return std::filesystem::path(wide) / "ShadowDPI";
 }
 
 } // namespace

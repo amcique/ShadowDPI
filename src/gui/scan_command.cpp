@@ -57,15 +57,17 @@ std::wstring build_elevated_command(std::wstring_view expected_hash,
         L"$t=[Text.Encoding]::UTF8.GetString($b);"
         L"$s=[ScriptBlock]::Create($t);& $s";
 
-    for (std::size_t index = 0; index < arguments.size(); ++index) {
+    std::size_t index = 0;
+    while (index < arguments.size()) {
         const auto& token = arguments[index];
+        std::size_t advance = 1;
         if (is_switch(token)) {
             command += L" " + token;
-            continue;
         }
-        if (is_parameter(token) && index + 1 < arguments.size()) {
+        else if (is_parameter(token) && index + 1 < arguments.size()) {
             command += L" " + token;
-            const auto& value = arguments[++index];
+            const auto& value = arguments[index + 1];
+            advance = 2;
             if (token == L"-Urls") {
                 std::wstring array;
                 std::size_t start = 0;
@@ -88,9 +90,11 @@ std::wstring build_elevated_command(std::wstring_view expected_hash,
             else {
                 command += L" " + quote(value);
             }
-            continue;
         }
-        command += L" " + quote(token);
+        else {
+            command += L" " + quote(token);
+        }
+        index += advance;
     }
     return command;
 }

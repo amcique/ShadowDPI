@@ -22,8 +22,12 @@ int failures = 0;
 
 } // namespace
 
+// Exercises the pure helper functions used by the tray GUI. Each section
+// covers one module: presets, strings, scan arguments, progress parsing, and
+// the elevated PowerShell command renderer.
 int main()
 {
+    // Preset catalogue: nine numbered presets with valid arguments.
     const auto presets = sdp::gui::presets();
     CHECK(presets.size() == 9);
     for (std::size_t index = 0; index < presets.size(); ++index) {
@@ -47,12 +51,14 @@ int main()
     CHECK(last.arguments.size() == 1);
     CHECK(last.arguments[0] == "-9");
 
+    // Localized strings are all populated.
     const auto& strings = sdp::gui::english();
     CHECK(!strings.app_name.empty());
     CHECK(!strings.open_dashboard.empty());
     CHECK(!strings.emergency_stop.empty());
     CHECK(!strings.dashboard_title.empty());
 
+    // Scan argument construction: URLs, DNS choice and required flags.
     sdp::gui::ScanOptions options;
     options.urls.push_back("example.com");
     options.url_file = "C:\\urls.txt";
@@ -80,6 +86,7 @@ int main()
     CHECK(std::find(system_dns.begin(), system_dns.end(), "system") !=
           system_dns.end());
 
+    // Progress JSON parsing, including malformed input.
     const auto progress = sdp::gui::parse_progress_line(
         "{\"index\":1,\"total\":9,\"name\":\"preset 2\","
         "\"verdict\":\"pass\",\"targetsPassed\":3,\"targetTotal\":3,"
@@ -115,6 +122,7 @@ int main()
         CHECK(mixed_summary->recommendation.args.size() == 1);
     }
 
+    // Deduplication and bounded retry of partial progress lines.
     sdp::gui::ProgressCollector collector;
     CHECK(collector.consume(
               "{\"index\":0,\"name\":\"preset 1\",\"verdict\":\"pass\"}\n")
