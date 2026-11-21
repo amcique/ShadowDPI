@@ -397,12 +397,14 @@ static void start_scan(HWND window)
                      MB_OK | MB_ICONWARNING);
         return;
     }
+    // Resolve the absolute PowerShell path before any elevation prompt.
     const auto powershell = powershell_path();
     if (powershell.empty()) {
         show_message(window, widen(strings.scan_elevation),
                      MB_OK | MB_ICONWARNING);
         return;
     }
+    // Parse the wizard fields into options: URLs, presets, timeouts, DNS.
     ScanOptions options;
     const auto urls = narrow_text(window_text(window, kScanUrls));
     std::string current;
@@ -420,6 +422,7 @@ static void start_scan(HWND window)
     if (!current.empty()) {
         options.urls.push_back(current);
     }
+    // Combo boxes fall back to a default index when nothing is selected.
     options.url_file = narrow_text(window_text(window, kScanUrlFile));
     const auto selection = [](HWND combo, int fallback) {
         const auto index = static_cast<int>(
@@ -460,6 +463,7 @@ static void start_scan(HWND window)
     }
     options.dns_addr = narrow_text(window_text(window, kScanDns));
 
+    // Fresh temp outputs and cleared state for each run.
     g_scan.json_path = temporary_path(L"-scan.json");
     g_scan.progress_path = temporary_path(L"-progress.jsonl");
     g_scan.collector = ProgressCollector{};
@@ -494,6 +498,7 @@ static void start_scan(HWND window)
         L"-NoProfile -ExecutionPolicy Bypass -Command " +
         quote_windows_argument(command);
 
+    // Launch elevated. The verified script rechecks its own hash at run time.
     SHELLEXECUTEINFOW info{};
     info.cbSize = sizeof(info);
     info.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -699,6 +704,33 @@ void show_blacklist_editor(HWND parent)
     }
 }
 
+// Applies the DNS editor fields as new service arguments through IPC.
+static void apply_dns_settings(HWND window)
+{
+    std::vector<std::string> arguments;
+    const auto v4 = narrow_text(window_text(window, kDnsV4));
+    const auto v6 = narrow_text(window_text(window, kDnsV6));
+    const auto port = narrow_text(window_text(window, kDnsPort));
+    if (!v4.empty()) {
+        arguments.push_back("--dns-addr");
+        arguments.push_back(v4);
+        arguments.push_back("--dns-port");
+        arguments.push_back(port);
+    }
+    if (!v6.empty()) {
+        arguments.push_back("--dnsv6-addr");
+        arguments.push_back(v6);
+        arguments.push_back("--dnsv6-port");
+        arguments.push_back(port);
+    }
+    std::string response;
+    std::string error;
+    const bool ok = send_request(MessageType::ApplyConfig,
+                                 encode_argv(arguments), response, error);
+    show_message(window, widen(!response.empty() ? response : error),
+                 MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONWARNING));
+}
+
 LRESULT CALLBACK dns_proc(HWND window,
                           UINT message,
                           WPARAM wparam,
@@ -724,29 +756,7 @@ LRESULT CALLBACK dns_proc(HWND window,
         return 0;
     case WM_COMMAND:
         if (LOWORD(wparam) == kDnsApply) {
-            std::vector<std::string> arguments;
-            const auto v4 = narrow_text(window_text(window, kDnsV4));
-            const auto v6 = narrow_text(window_text(window, kDnsV6));
-            const auto port = narrow_text(window_text(window, kDnsPort));
-            if (!v4.empty()) {
-                arguments.push_back("--dns-addr");
-                arguments.push_back(v4);
-                arguments.push_back("--dns-port");
-                arguments.push_back(port);
-            }
-            if (!v6.empty()) {
-                arguments.push_back("--dnsv6-addr");
-                arguments.push_back(v6);
-                arguments.push_back("--dnsv6-port");
-                arguments.push_back(port);
-            }
-            std::string response;
-            std::string error;
-            const bool ok = send_request(MessageType::ApplyConfig,
-                                         encode_argv(arguments), response,
-                                         error);
-            show_message(window, widen(!response.empty() ? response : error),
-                         MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONWARNING));
+            apply_dns_settings(window);
             return 0;
         }
         if (LOWORD(wparam) == kDnsClose) {
