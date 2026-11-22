@@ -416,17 +416,17 @@ TTL и поля порядкового номера или контрольно�
 Каждый релиз публикует MSI, zip и файл `.sha256` к ним:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
-Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256
+Get-FileHash .\shadowdpi-0.5.1-x64.msi -Algorithm SHA256
+Get-FileHash .\shadowdpi-0.5.1-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.5.1-x64.sha256
 ```
 
 Оба файла покрыты аттестацией происхождения сборки GitHub, которая фиксирует
 workflow, коммит и runner, создавшие их:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
-gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.msi --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.zip --repo amcique/ShadowDPI
 ```
 
 Если проверка не проходит, не запускайте установщик или бинарник.

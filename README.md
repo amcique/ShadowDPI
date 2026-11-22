@@ -409,17 +409,17 @@ run the scanner against your own URL list and open an issue with its output.
 Every release publishes an MSI, a zip, and a matching `.sha256` file:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
-Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256
+Get-FileHash .\shadowdpi-0.5.1-x64.msi -Algorithm SHA256
+Get-FileHash .\shadowdpi-0.5.1-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.5.1-x64.sha256
 ```
 
 Both files are covered by a GitHub build-provenance attestation, which records
 the workflow, commit, and runner that produced them:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
-gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.msi --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.zip --repo amcique/ShadowDPI
 ```
 
 If a check fails, do not run the installer or the binary. Neither file is

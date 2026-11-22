@@ -68,10 +68,10 @@ under `HKLM\SOFTWARE\ShadowDPI`, so the new MSI reads them back and keeps them.
 Repair and Remove are available from Windows Settings. For unattended use:
 
 ```powershell
-msiexec /i shadowdpi-0.5.0-x64.msi /qn /norestart `
+msiexec /i shadowdpi-0.5.1-x64.msi /qn /norestart `
   INSTALLFOLDER="D:\Tools\ShadowDPI" SERVICENAME=ShadowDPI `
   SERVICEARGS="-9" SERVICESTARTMODE=auto STARTATSERVICE=1
-msiexec /x shadowdpi-0.5.0-x64.msi /qn /norestart
+msiexec /x shadowdpi-0.5.1-x64.msi /qn /norestart
 ```
 
 Uninstall stops and deletes the service, removes the registry settings and
@@ -282,12 +282,12 @@ A successful install writes a file like this:
 {
   "product": "ShadowDPI",
   "schemaVersion": 1,
-  "version": "0.5.0",
-  "versionText": "ShadowDPI 0.5.0 (C++20)",
+  "version": "0.5.1",
+  "versionText": "ShadowDPI 0.5.1 (C++20)",
   "installPath": "C:\\Program Files\\ShadowDPI",
   "installedUtc": "2026-11-15T00:00:00Z",
   "updatedUtc": "2026-11-15T00:00:00Z",
-  "sourcePath": "C:\\Users\\you\\Downloads\\shadowdpi-0.5.0-x64",
+  "sourcePath": "C:\\Users\\you\\Downloads\\shadowdpi-0.5.1-x64",
   "payload": [
     "shadowdpi.exe",
     "WinDivert.dll",

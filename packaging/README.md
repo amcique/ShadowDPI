@@ -43,10 +43,10 @@ Build a staged release directory first, then run:
 
 ```powershell
 dotnet tool restore
-.\packaging\wix\build.ps1 -SourceDir .\shadowdpi_x64_<sha> -Version 0.5.0
+.\packaging\wix\build.ps1 -SourceDir .\shadowdpi_x64_<sha> -Version 0.5.1
 ```
 
-The script writes `shadowdpi-0.5.0-x64.msi` into `build\msi-out`. CI runs the same
+The script writes `shadowdpi-0.5.1-x64.msi` into `build\msi-out`. CI runs the same
 build, validates the MSI with ICE rules, performs a silent install and uninstall
 smoke test, and publishes the MSI next to the zip. `packaging/wix/obj`,
 `packaging/wix/bin`, `*.msi`, and `*.wixpdb` are ignored by Git.

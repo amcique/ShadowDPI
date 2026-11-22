@@ -78,9 +78,9 @@ Describe 'install.ps1 pure functions' {
         $root = 'Registry::HKEY_CURRENT_USER\Software\ShadowDPI-Installer-Test'
         $key = Join-Path $root $script:UninstallKeyName
         try {
-            Set-UninstallRegistration -VersionText 'ShadowDPI 0.5.0 (C++20)' -InstallPath 'C:\Tools\ShadowDPI' -ScriptPath 'C:\Tools\ShadowDPI\install.ps1' -Root $root
+            Set-UninstallRegistration -VersionText 'ShadowDPI 0.5.1 (C++20)' -InstallPath 'C:\Tools\ShadowDPI' -ScriptPath 'C:\Tools\ShadowDPI\install.ps1' -Root $root
             (Get-ItemProperty -LiteralPath $key).DisplayName | Should -Be 'ShadowDPI'
-            (Get-ItemProperty -LiteralPath $key).DisplayVersion | Should -Be '0.5.0'
+            (Get-ItemProperty -LiteralPath $key).DisplayVersion | Should -Be '0.5.1'
             (Get-ItemProperty -LiteralPath $key).QuietUninstallString | Should -Match '-Silent'
             Remove-UninstallRegistration -Root $root
             Test-Path -LiteralPath $key | Should -BeFalse
@@ -218,7 +218,7 @@ Describe 'install.ps1 pure functions' {
                 installedUtc = '2026-01-01T00:00:00Z'
                 payload      = @('old.txt')
             }
-            Write-InstallMetadata -Path $root -Metadata $old -VersionText 'ShadowDPI 0.5.0 (C++20)' `
+            Write-InstallMetadata -Path $root -Metadata $old -VersionText 'ShadowDPI 0.5.1 (C++20)' `
                 -SourcePath 'C:\src' -ServiceEnabled $true -ServiceName 'ShadowDPI' `
                 -ServiceArgs '-9' -StartType 'auto' -Running $true
             $file = Join-Path $root 'install.json'
@@ -227,7 +227,7 @@ Describe 'install.ps1 pure functions' {
             (Get-Content -LiteralPath $file -Raw) |
                 Should -Match '"installedUtc"\s*:\s*"2026-01-01T00:00:00Z"'
             $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-            $data.version | Should -Be '0.5.0'
+            $data.version | Should -Be '0.5.1'
             $data.service.running | Should -BeTrue
             @($data.payload).Count | Should -Be 1
 
@@ -252,7 +252,7 @@ Describe 'install.ps1 pure functions' {
     It 'falls back to a numeric version when none is present' {
         Get-VersionNumber -Text '' | Should -Be ''
         Get-VersionNumber -Text 'no version here' | Should -Be '0.0'
-        Get-VersionNumber -Text 'ShadowDPI 0.5.0 (C++20)' | Should -Be '0.5.0'
+        Get-VersionNumber -Text 'ShadowDPI 0.5.1 (C++20)' | Should -Be '0.5.1'
     }
 
     It 'creates an install log at the requested path' {

@@ -419,17 +419,17 @@ URL listenizle tarayıcıyı çalıştırın ve çıktısıyla bir issue açın.
 Her sürüm bir MSI, bir zip ve eşleşen `.sha256` dosyasını yayımlar:
 
 ```powershell
-Get-FileHash .\shadowdpi-0.5.0-x64.msi -Algorithm SHA256
-Get-FileHash .\shadowdpi-0.5.0-x64.zip -Algorithm SHA256
-Get-Content .\shadowdpi-0.5.0-x64.sha256
+Get-FileHash .\shadowdpi-0.5.1-x64.msi -Algorithm SHA256
+Get-FileHash .\shadowdpi-0.5.1-x64.zip -Algorithm SHA256
+Get-Content .\shadowdpi-0.5.1-x64.sha256
 ```
 
 Her iki dosya da GitHub derleme kaynağı kanıtı ile imzalanır; bu kayıt dosyaları
 hangi iş akışının, hangi commit'in ve hangi çalıştırıcının ürettiğini gösterir:
 
 ```powershell
-gh attestation verify .\shadowdpi-0.5.0-x64.msi --repo amcique/ShadowDPI
-gh attestation verify .\shadowdpi-0.5.0-x64.zip --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.msi --repo amcique/ShadowDPI
+gh attestation verify .\shadowdpi-0.5.1-x64.zip --repo amcique/ShadowDPI
 ```
 
 Bir denetim başarısız olursa kurulumu veya ikiliyi çalıştırmayın.

@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SourceDir,
 
-    [string]$Version = '0.5.0',
+    [string]$Version = '0.5.1',
 
     [string]$Output = (Join-Path $PSScriptRoot '..\..\build\msi-out')
 )
