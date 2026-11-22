@@ -222,8 +222,11 @@ Describe 'install.ps1 pure functions' {
                 -SourcePath 'C:\src' -ServiceEnabled $true -ServiceName 'ShadowDPI' `
                 -ServiceArgs '-9' -StartType 'auto' -Running $true
             $file = Join-Path $root 'install.json'
+            # PowerShell 7's ConvertFrom-Json coerces ISO date strings into
+            # DateTime objects, so assert the on-disk JSON text for this field.
+            (Get-Content -LiteralPath $file -Raw) |
+                Should -Match '"installedUtc"\s*:\s*"2026-01-01T00:00:00Z"'
             $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-            $data.installedUtc | Should -Be '2026-01-01T00:00:00Z'
             $data.version | Should -Be '0.5.0'
             $data.service.running | Should -BeTrue
             @($data.payload).Count | Should -Be 1
@@ -233,8 +236,9 @@ Describe 'install.ps1 pure functions' {
                 -SourcePath 'C:\src2' -ServiceEnabled $false -ServiceName 'ShadowDPI' `
                 -ServiceArgs '-9' -StartType 'auto' -Running $false `
                 -Payload @('new.txt', 'docs\new.md')
+            (Get-Content -LiteralPath $file -Raw) |
+                Should -Match '"installedUtc"\s*:\s*"2026-01-01T00:00:00Z"'
             $data2 = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-            $data2.installedUtc | Should -Be '2026-01-01T00:00:00Z'
             $data2.version | Should -Be '0.5.1'
             $data2.service.enabled | Should -BeFalse
             @($data2.payload).Count | Should -Be 2

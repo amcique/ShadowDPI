@@ -1739,7 +1739,16 @@ function Write-InstallMetadata {
     $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $installedUtc = $now
     if ($null -ne $Metadata -and $Metadata.installedUtc) {
-        $installedUtc = [string]$Metadata.installedUtc
+        $previous = $Metadata.installedUtc
+        if ($previous -is [datetime]) {
+            # PowerShell 7's ConvertFrom-Json coerces ISO date strings into
+            # DateTime. Normalize back to the same format we write ourselves.
+            $installedUtc = $previous.ToUniversalTime().ToString(
+                'yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+        }
+        else {
+            $installedUtc = [string]$previous
+        }
     }
 
     $payloadList = @()
