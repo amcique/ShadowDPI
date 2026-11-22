@@ -22,6 +22,7 @@
 #include "shadowdpi/util.hpp"
 #include "divert.hpp"
 #include "fake_sender.hpp"
+#include "lifecycle.hpp"
 #include "packet.hpp"
 #include "packet_engine.hpp"
 #include "win_headers.hpp"
@@ -1426,6 +1427,108 @@ void test_receive_error_classes()
     CHECK(!sdp::win::is_recv_shutdown_error(ERROR_INSUFFICIENT_BUFFER));
 }
 
+void test_error_message_helpers()
+{
+    const auto known = sdp::win::format_error_message(ERROR_FILE_NOT_FOUND);
+    CHECK(known.find("Win32 error 2") != std::string::npos);
+    CHECK(known.find("file") != std::string::npos ||
+          known.find("File") != std::string::npos);
+
+    const auto unknown = sdp::win::format_error_message(0x7FFFFFFFu);
+    CHECK(unknown.find("Win32 error 2147483647") != std::string::npos);
+
+    // Hints are specific to documented WinDivert error codes.
+    CHECK(!sdp::win::divert_error_hint(2).empty());
+    CHECK(!sdp::win::divert_error_hint(654).empty());
+    CHECK(!sdp::win::divert_error_hint(577).empty());
+    CHECK(!sdp::win::divert_error_hint(1275).empty());
+    CHECK(!sdp::win::divert_error_hint(1753).empty());
+    CHECK(sdp::win::divert_error_hint(1).empty());
+}
+
+void test_shutdown_coordinator()
+{
+    auto& coordinator = sdp::win::ShutdownCoordinator::instance();
+    coordinator.reset();
+    CHECK(!coordinator.stop_requested());
+
+    int calls = 0;
+    coordinator.set_stop_callback([&calls] { ++calls; });
+
+    coordinator.request_stop();
+    CHECK(coordinator.stop_requested());
+    CHECK(calls == 1);
+
+    // Repeated stop requests re-notify. The service relies on this so a
+    // second Ctrl+C or SCM stop still reaches the waiting engine.
+    coordinator.request_stop();
+    CHECK(calls == 2);
+
+    // A callback registered later is invoked on the next request.
+    int late_calls = 0;
+    coordinator.set_stop_callback([&late_calls] { ++late_calls; });
+    coordinator.request_stop();
+    CHECK(late_calls == 1);
+    CHECK(calls == 2);
+
+    // reset clears both the stop flag and the callback.
+    coordinator.reset();
+    CHECK(!coordinator.stop_requested());
+    coordinator.request_stop();
+    CHECK(late_calls == 1);
+    CHECK(calls == 2);
+
+    // A callback installed while stopped is invoked on the next request.
+    int fresh_calls = 0;
+    coordinator.set_stop_callback([&fresh_calls] { ++fresh_calls; });
+    coordinator.request_stop();
+    CHECK(fresh_calls == 1);
+
+    coordinator.reset();
+}
+
+void test_engine_malformed_packets()
+{
+    sdp::Config config;
+    config.http.fragment_enabled = true;
+    config.http.fragment_size = 10;
+
+    const sdp::Logger logger{false};
+    RecordingSink sink;
+    sdp::win::PacketEngine engine{config, logger, sink};
+
+    // Empty and truncated buffers must be handled without reading out of
+    // bounds and must be reinjected unchanged.
+    sdp::win::PacketBuffer empty{};
+    empty.length = 0;
+    auto action = engine.process(empty);
+    CHECK(action.reinject);
+
+    sdp::win::PacketBuffer truncated{};
+    truncated.length = 5;
+    for (std::size_t index = 0; index < truncated.length; ++index) {
+        truncated.data[index] = std::byte{0x45};
+    }
+    action = engine.process(truncated);
+    CHECK(action.reinject);
+
+    // A packet whose declared IP length exceeds the captured length must not
+    // cause the engine to read past the valid bytes.
+    sdp::win::PacketBuffer lying{};
+    lying.length = 40;
+    for (std::byte& byte : lying.data) {
+        byte = std::byte{0};
+    }
+    lying.data[0] = std::byte{0x45};               // IPv4, 5 words
+    lying.data[2] = std::byte{0xFF};               // declared 65535 bytes
+    lying.data[3] = std::byte{0xFF};
+    lying.data[9] = std::byte{6};                  // TCP
+    action = engine.process(lying);
+    CHECK(action.reinject);
+
+    CHECK(sink.packets.empty());
+}
+
 } // namespace
 
 int main()
@@ -1457,6 +1560,9 @@ int main()
     test_engine_blacklist_gating();
     test_copy_packet();
     test_receive_error_classes();
+    test_error_message_helpers();
+    test_shutdown_coordinator();
+    test_engine_malformed_packets();
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";

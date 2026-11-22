@@ -392,6 +392,8 @@ if(SHADOWDPI_BUILD_TESTS)
 
     shadowdpi_add_packet_tool(shadowdpi_windows_tests
         tests/windows_tests.cpp
+        src/windows/divert.cpp
+        src/windows/lifecycle.cpp
         src/windows/packet_engine.cpp
         src/windows/fake_sender.cpp)
     add_test(NAME windows COMMAND shadowdpi_windows_tests)

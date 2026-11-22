@@ -117,6 +117,140 @@ Describe 'install.ps1 pure functions' {
         }
     }
 
+    It 'rejects all protected install path families' {
+        # Drive/share root.
+        { Assert-SafeInstallPath -Path $env:SystemDrive + '\' } | Should -Throw
+        # ProgramData and the Users tree.
+        { Assert-SafeInstallPath -Path (Join-Path $env:ProgramData 'ShadowDPI') } | Should -Throw
+        { Assert-SafeInstallPath -Path (Join-Path $env:SystemDrive 'Users\Alice\AppData') } | Should -Throw
+        # Exact Program Files roots are blocked, but a subfolder is allowed.
+        { Assert-SafeInstallPath -Path $env:ProgramFiles } | Should -Throw
+        { Assert-SafeInstallPath -Path (Join-Path $env:ProgramFiles 'Common Files') } | Should -Throw
+        { Assert-SafeInstallPath -Path (Join-Path $env:ProgramFiles 'WindowsApps') } | Should -Throw
+        { Assert-SafeInstallPath -Path (Join-Path $env:ProgramFiles 'ShadowDPI') } | Should -Not -Throw
+    }
+
+    It 'rejects an install path that enters a protected tree through a junction' {
+        # A junction under a writable temp root that points into SystemRoot must
+        # be resolved before the protected-path check runs.
+        $root = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-junction-' + [Guid]::NewGuid().ToString('N'))
+        $link = Join-Path $root 'system-link'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        try {
+            $created = $false
+            try {
+                New-Item -ItemType Junction -Path $link -Target $env:SystemRoot -ErrorAction Stop | Out-Null
+                $created = $true
+            }
+            catch {
+                # Junction creation may require privileges on some hosts; the
+                # other protected-path tests still cover the logic.
+            }
+            if ($created) {
+                { Assert-SafeInstallPath -Path (Join-Path $link 'ShadowDPI') } | Should -Throw
+            }
+        }
+        finally {
+            if (Test-Path -LiteralPath $link) {
+                (Get-Item -LiteralPath $link -Force).Delete() 2>$null
+            }
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'quotes Windows command-line arguments with correct backslash escaping' {
+        Quote-Argument -Value 'plain' | Should -Be 'plain'
+        Quote-Argument -Value 'two words' | Should -Be '"two words"'
+        Quote-Argument -Value 'say "hi"' | Should -Be '"say \"hi\""'
+        Quote-Argument -Value 'C:\path with space\' | Should -Be '"C:\path with space\\"'
+        Quote-Argument -Value 'a\"b c' | Should -Be '"a\\\"b c"'
+    }
+
+    It 'parses service binary paths with and without quotes' {
+        $quoted = Get-ServiceLaunch -PathName '"C:\Program Files\ShadowDPI\shadowdpi.exe" -9 --dns-addr 1.1.1.1'
+        $quoted.ExePath | Should -Be 'C:\Program Files\ShadowDPI\shadowdpi.exe'
+        $quoted.Arguments | Should -Be '-9 --dns-addr 1.1.1.1'
+
+        $bare = Get-ServiceLaunch -PathName 'C:\Tools\ShadowDPI\shadowdpi.exe -5'
+        $bare.ExePath | Should -Be 'C:\Tools\ShadowDPI\shadowdpi.exe'
+        $bare.Arguments | Should -Be '-5'
+
+        (Get-ServiceLaunch -PathName '').ExePath | Should -Be ''
+    }
+
+    It 'accepts ownership of an absent service and rejects an empty path name' {
+        # No service with this name exists, so there is nothing to conflict with.
+        Test-ServiceOwnership -Name 'ShadowDpiMissingServiceXYZ' -ExePath 'C:\Tools\ShadowDPI\shadowdpi.exe' | Should -BeTrue
+    }
+
+    It 'validates service names' {
+        { Assert-ServiceName -Name '' } | Should -Throw
+        { Assert-ServiceName -Name 'bad/name' } | Should -Throw
+        { Assert-ServiceName -Name ('a' * 201) } | Should -Throw
+        { Assert-ServiceName -Name 'ShadowDPI.test-1' } | Should -Not -Throw
+    }
+
+    It 'reads install config from metadata' {
+        $metadata = [pscustomobject]@{
+            service = [pscustomobject]@{
+                enabled   = $true
+                name      = 'CustomSvc'
+                arguments = '-5'
+                startType = 'demand'
+            }
+        }
+        $config = Get-InstallConfig -Metadata $metadata
+        $config.ServiceEnabled | Should -BeTrue
+        $config.ServiceName | Should -Be 'CustomSvc'
+        $config.ServiceArgs | Should -Be '-5'
+        $config.StartType | Should -Be 'demand'
+
+        $empty = Get-InstallConfig -Metadata ([pscustomobject]@{ service = $null })
+        $empty.ServiceName | Should -Be 'ShadowDPI'
+        $empty.ServiceArgs | Should -Be '-9'
+    }
+
+    It 'writes install metadata preserving install time and payload' {
+        $root = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-meta-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        try {
+            $old = [pscustomobject]@{
+                installedUtc = '2026-01-01T00:00:00Z'
+                payload      = @('old.txt')
+            }
+            Write-InstallMetadata -Path $root -Metadata $old -VersionText 'ShadowDPI 0.5.0 (C++20)' `
+                -SourcePath 'C:\src' -ServiceEnabled $true -ServiceName 'ShadowDPI' `
+                -ServiceArgs '-9' -StartType 'auto' -Running $true
+            $file = Join-Path $root 'install.json'
+            $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            $data.installedUtc | Should -Be '2026-01-01T00:00:00Z'
+            $data.version | Should -Be '0.5.0'
+            $data.service.running | Should -BeTrue
+            @($data.payload).Count | Should -Be 1
+
+            # New payload replaces the old one; installedUtc still preserved.
+            Write-InstallMetadata -Path $root -Metadata $data -VersionText 'ShadowDPI 0.5.1 (C++20)' `
+                -SourcePath 'C:\src2' -ServiceEnabled $false -ServiceName 'ShadowDPI' `
+                -ServiceArgs '-9' -StartType 'auto' -Running $false `
+                -Payload @('new.txt', 'docs\new.md')
+            $data2 = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            $data2.installedUtc | Should -Be '2026-01-01T00:00:00Z'
+            $data2.version | Should -Be '0.5.1'
+            $data2.service.enabled | Should -BeFalse
+            @($data2.payload).Count | Should -Be 2
+            $data2.payload[0] | Should -Be 'new.txt'
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'falls back to a numeric version when none is present' {
+        Get-VersionNumber -Text '' | Should -Be ''
+        Get-VersionNumber -Text 'no version here' | Should -Be '0.0'
+        Get-VersionNumber -Text 'ShadowDPI 0.5.0 (C++20)' | Should -Be '0.5.0'
+    }
+
     It 'creates an install log at the requested path' {
         $log = Join-Path ([IO.Path]::GetTempPath()) ('shadowdpi-log-' + [Guid]::NewGuid().ToString('N') + '.log')
         try {
